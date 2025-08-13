@@ -1,40 +1,29 @@
-"""
-Pi-Kamera Wrapper (Platzhalter).
-
-Ziel:
-- Einheitliches Interface für die Kamera.
-- Später auf dem Raspberry Pi mit Picamera2 implementieren.
-- Jetzt noch ohne echte Funktionalität, damit andere Module bereits importieren können.
-
-TODO (später am Pi):
-- Picamera2 importieren (from picamera2 import Picamera2, import libcamera)
-- In __init__ konfigurieren (size, hflip, vflip, buffer_count)
-- read() → (ok, frame_bgr) zurückgeben
-- stop() → Kamera stoppen/aufräumen
-"""
-
 from typing import Tuple
-import numpy as np
-
-DEFAULT_SIZE: Tuple[int, int] = (1280, 720)
+import cv2
+try:
+    from picamera2 import Picamera2
+    import libcamera
+except ImportError as e:
+    raise ImportError("Fehlt: python3-picamera2 (sudo apt install -y python3-picamera2)") from e
 
 class PiCamera:
-    def __init__(self, size: Tuple[int, int] = DEFAULT_SIZE, hflip: bool = False, vflip: bool = False) -> None:
-        self.size = size
-        self.hflip = hflip
-        self.vflip = vflip
-        # Platzhalter: hier später Picamera2 konfigurieren
-
-    def read(self) -> tuple[bool, "np.ndarray"]:
-        """
-        Liefert (ok, frame_bgr).
-        Placeholder: wirf eine klare Exception, bis die Pi-Implementierung steht.
-        """
-        raise NotImplementedError(
-            "PiCamera.read() ist noch nicht implementiert. "
-            "Wird später mit Picamera2 am Raspberry Pi ergänzt."
+    def __init__(self, size: Tuple[int, int]=(1280, 720), hflip: bool=False, vflip: bool=False):
+        self.picam = Picamera2()
+        transform = libcamera.Transform(hflip=int(hflip), vflip=int(vflip))
+        config = self.picam.create_video_configuration(
+            main={"size": size, "format": "RGB888"},
+            transform=transform,
+            buffer_count=4
         )
+        self.picam.configure(config)
+        self.picam.start()
 
-    def stop(self) -> None:
-        """Aufräumen/Stop – aktuell nichts zu tun."""
-        return
+    def read(self):
+        frame_rgb = self.picam.capture_array()
+        return True, cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+
+    def stop(self):
+        try:
+            self.picam.stop()
+        except Exception:
+            pass
