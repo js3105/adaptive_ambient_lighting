@@ -1,5 +1,5 @@
-from camera.camera_manager import CameraManager
-from detection.detector import ObjectDetector
+from camera/camera_manager import CameraManager
+from detection/detector import ObjectDetector
 
 def main():
     try:
