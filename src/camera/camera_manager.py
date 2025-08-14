@@ -2,7 +2,7 @@ from picamera2 import Picamera2
 from picamera2.devices import IMX500
 from picamera2.devices.imx500 import NetworkIntrinsics
 import os
-from ..config.settings import CameraSettings
+from config.settings import CameraSettings, DetectionSettings 
 
 class CameraManager:
     def __init__(self):
