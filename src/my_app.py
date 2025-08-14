@@ -14,36 +14,28 @@ def setup_camera():
     # Initialize IMX500 with local model
     imx500 = IMX500(model_path)
     
-    # Setup network intrinsics
+    # Setup network intrinsics with hardcoded values
     intrinsics = imx500.network_intrinsics
     if not intrinsics:
         intrinsics = NetworkIntrinsics()
-        intrinsics.task = "object detection"
+    
+    # Configure settings that were previously command line arguments
+    intrinsics.task = "object detection"
+    intrinsics.bbox_normalization = True
+    intrinsics.bbox_order = "xy"
+    intrinsics.inference_rate = 30  
+    intrinsics.ignore_dash_labels = True
     
     return imx500, intrinsics
-
-def process_detections(metadata, imx500, intrinsics, confidence_threshold=0.6):
-    # Get model outputs
-    outputs = imx500.get_outputs(metadata, add_batch=True)
-    if outputs is None:
-        return
-    
-    # Extract detection results
-    boxes, scores, classes = outputs[0][0], outputs[1][0], outputs[2][0]
-    
-    # Print detections that exceed confidence threshold
-    for score, class_id in zip(scores, classes):
-        if score > confidence_threshold:
-            print(f"Detected object class {int(class_id)} (confidence: {score:.2f})")
 
 def main():
     # Setup camera and model
     imx500, intrinsics = setup_camera()
     
-    # Initialize camera
+    # Initialize camera with specific frame rate
     picam2 = Picamera2(imx500.camera_num)
     config = picam2.create_preview_configuration(
-        controls={"FrameRate": 30},
+        controls={"FrameRate": 30},  # Hardcoded FPS
         buffer_count=4
     )
     
@@ -55,7 +47,7 @@ def main():
         while True:
             # Capture and process frame
             metadata = picam2.capture_metadata()
-            process_detections(metadata, imx500, intrinsics)
+            process_detections(metadata, imx500, intrinsics, confidence_threshold=0.55)
             
     except KeyboardInterrupt:
         print("\nStopping camera...")
