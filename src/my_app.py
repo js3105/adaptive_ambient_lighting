@@ -28,6 +28,20 @@ def setup_camera():
     
     return imx500, intrinsics
 
+def process_detections(metadata, imx500, intrinsics, confidence_threshold=0.6):
+    # Get model outputs
+    outputs = imx500.get_outputs(metadata, add_batch=True)
+    if outputs is None:
+        return
+    
+    # Extract detection results
+    boxes, scores, classes = outputs[0][0], outputs[1][0], outputs[2][0]
+    
+    # Print detections that exceed confidence threshold
+    for score, class_id in zip(scores, classes):
+        if score > confidence_threshold:
+            print(f"Detected object class {int(class_id)} (confidence: {score:.2f})")
+
 def main():
     # Setup camera and model
     imx500, intrinsics = setup_camera()
