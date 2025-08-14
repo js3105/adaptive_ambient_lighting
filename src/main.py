@@ -1,5 +1,11 @@
-from camera/camera_manager import CameraManager
-from detection/detector import ObjectDetector
+import sys
+import os
+
+# Füge das src Verzeichnis zum Python-Pfad hinzu
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.camera.camera_manager import CameraManager
+from src.detection.detector import ObjectDetector
 
 def main():
     try:
