@@ -1,3 +1,5 @@
+from config.settings import CameraSettings
+
 class ObjectDetector:
     def __init__(self, imx500, intrinsics):
         self.imx500 = imx500
