@@ -121,13 +121,13 @@ class ObjectDetector:
         green_bot = np.average(mask_green[t2:])#, weights=green_weights)
 
         # Adjust scoring with lower threshold
-        scores = {"Rot": red_top, "Gelb": yellow_mid, "Grün": green_bot}
+        scores = {"Rot": red_top, "Gelb": yellow_mid, "Gruen": green_bot}
         winner = max(scores, key=scores.get)
         max_score = scores[winner]
 
         # Reduced thresholds for better detection
-        RATIO_MARGIN = 1.08
-        MIN_SCORE = 8
+        RATIO_MARGIN = 1.05
+        MIN_SCORE = 6
 
         others = [v for k, v in scores.items() if k != winner]
         if all(max_score > o * RATIO_MARGIN for o in others) and max_score > MIN_SCORE:
