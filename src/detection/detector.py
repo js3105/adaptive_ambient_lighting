@@ -34,7 +34,6 @@ class ObjectDetector:
     def parse_detections(self, metadata):
         np_outputs = self.imx500.get_outputs(metadata, add_batch=True)
         if np_outputs is None:
-            self.last_detections = []
             return self.last_detections
 
         input_w, input_h = self.imx500.get_input_size()
