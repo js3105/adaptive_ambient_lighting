@@ -32,18 +32,38 @@ class ObjectDetector:
         return self.intrinsics.labels
     
     def parse_detections(self, metadata):
-        """Parse output tensor into detections"""
         np_outputs = self.imx500.get_outputs(metadata, add_batch=True)
         if np_outputs is None:
             return self.last_detections
-            
-        boxes, scores, classes = np_outputs[0][0], np_outputs[1][0], np_outputs[2][0]
-        
-        # Create Detection objects for confident detections
+
+        input_w, input_h = self.imx500.get_input_size()
+        bbox_normalization = getattr(self.intrinsics, "bbox_normalization", False)
+        bbox_order = getattr(self.intrinsics, "bbox_order", "yx")
+        threshold = 0.55
+        iou = 0.65
+        max_dets = 10
+
+        if getattr(self.intrinsics, "postprocess", "") == "nanodet":
+            boxes, scores, classes = postprocess_nanodet_detection(
+                outputs=np_outputs[0], conf=threshold, iou_thres=iou, max_out_dets=max_dets
+            )[0]
+            from picamera2.devices.imx500.postprocess import scale_boxes
+            boxes = scale_boxes(boxes, 1, 1, input_h, input_w, False, False)  # y0,x0,y1,x1
+            boxes = np.array_split(boxes, 4, axis=1)
+            boxes = zip(*boxes)
+        else:
+            boxes, scores, classes = np_outputs[0][0], np_outputs[1][0], np_outputs[2][0]
+            if bbox_normalization:
+                boxes = boxes / input_h
+            if bbox_order == "xy":
+                boxes = boxes[:, [1, 0, 3, 2]]  # -> y0, x0, y1, x1
+            boxes = np.array_split(boxes, 4, axis=1)
+            boxes = zip(*boxes)
+
         self.last_detections = [
             Detection(box, category, score, metadata, self.imx500, self.picam2)
             for box, score, category in zip(boxes, scores, classes)
-            if score > 0.55  # Confidence threshold
+            if float(score) > threshold
         ]
         return self.last_detections
 
