@@ -104,21 +104,21 @@ class ObjectDetector:
         t2 = (2 * h) // 3
 
         # Create weights matching the width of the ROI
-        red_weights = np.ones((t1, w))  # Match dimensions of top section
+        """red_weights = np.ones((t1, w))  # Match dimensions of top section
         yellow_weights = np.ones((t2-t1, w))  # Match dimensions of middle section
-        green_weights = np.ones((h-t2, w))  # Match dimensions of bottom section
+        green_weights = np.ones((h-t2, w))"""  # Match dimensions of bottom section
 
         # Weight the center columns more heavily
-        center_start = w // 4
+        """center_start = w // 4
         center_end = 3 * w // 4
         red_weights[:, center_start:center_end] = 1.5
         yellow_weights[:, center_start:center_end] = 1.5
-        green_weights[:, center_start:center_end] = 1.5
+        green_weights[:, center_start:center_end] = 1.5"""
 
         # Calculate weighted means properly considering both dimensions
-        red_top = np.average(mask_red[:t1], weights=red_weights)
-        yellow_mid = np.average(mask_yellow[t1:t2], weights=yellow_weights)
-        green_bot = np.average(mask_green[t2:], weights=green_weights)
+        red_top = np.average(mask_red[:t1])#, weights=red_weights)
+        yellow_mid = np.average(mask_yellow[t1:t2])#, weights=yellow_weights)
+        green_bot = np.average(mask_green[t2:])#, weights=green_weights)
 
         # Adjust scoring with lower threshold
         scores = {"Rot": red_top, "Gelb": yellow_mid, "Grün": green_bot}
