@@ -76,14 +76,19 @@ class ObjectDetector:
         # In HSV konvertieren
         hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
 
-        # Farbmasken für Rot, Gelb, Grün
-        lower_red1 = np.array([0, 100, 100])
-        upper_red1 = np.array([10, 255, 255])
-        lower_red2 = np.array([160, 100, 100])
-        upper_red2 = np.array([179, 255, 255])
-        lower_yellow = np.array([15, 100, 100])
-        upper_yellow = np.array([35, 255, 255])
-        lower_green = np.array([40, 100, 100])
+        # Modified HSV ranges with wider tolerances
+        # Red has two ranges in HSV
+        lower_red1 = np.array([0, 70, 50])     # More tolerant saturation and value
+        upper_red1 = np.array([10, 255, 255])  # Wider hue range
+        lower_red2 = np.array([160, 70, 50])   # More tolerant saturation and value
+        upper_red2 = np.array([180, 255, 255]) # Full range to 180
+
+        # Yellow is particularly tricky in HSV, widening its range
+        lower_yellow = np.array([15, 70, 50])   # Lower saturation threshold
+        upper_yellow = np.array([40, 255, 255]) # Wider hue range for yellow
+
+        # Green stays mostly the same but with adjusted saturation
+        lower_green = np.array([40, 70, 50])
         upper_green = np.array([90, 255, 255])
 
         mask_red1 = cv2.inRange(hsv, lower_red1, upper_red1)
@@ -92,21 +97,41 @@ class ObjectDetector:
         mask_yellow = cv2.inRange(hsv, lower_yellow, upper_yellow)
         mask_green = cv2.inRange(hsv, lower_green, upper_green)
 
-        # Drittelbereiche analysieren
+        # Add Gaussian blur to reduce noise
+        mask_red = cv2.GaussianBlur(mask_red, (5, 5), 0)
+        mask_yellow = cv2.GaussianBlur(mask_yellow, (5, 5), 0)
+        mask_green = cv2.GaussianBlur(mask_green, (5, 5), 0)
+
+        # Drittelbereiche analysieren with weighted regions
         t1 = h // 3
         t2 = (2 * h) // 3
-        red_top = np.mean(mask_red[:t1])
-        yellow_mid = np.mean(mask_yellow[t1:t2])
-        green_bot = np.mean(mask_green[t2:])
+        
+        # Weight the center of each section more heavily
+        red_weights = np.ones(t1)
+        red_weights[t1//4:3*t1//4] = 1.5  # Weight middle of top section more
+        
+        yellow_weights = np.ones(t2-t1)
+        yellow_weights[(t2-t1)//4:3*(t2-t1)//4] = 1.5  # Weight middle of middle section more
+        
+        green_weights = np.ones(h-t2)
+        green_weights[(h-t2)//4:3*(h-t2)//4] = 1.5  # Weight middle of bottom section more
 
-        # Erkennung basierend auf maximaler Helligkeit
+        # Apply weights to means
+        red_top = np.average(mask_red[:t1], weights=red_weights)
+        yellow_mid = np.average(mask_yellow[t1:t2], weights=yellow_weights)
+        green_bot = np.average(mask_green[t2:], weights=green_weights)
+
+        # Adjust scoring with lower threshold
         scores = {"Rot": red_top, "Gelb": yellow_mid, "Grün": green_bot}
         winner = max(scores, key=scores.get)
         max_score = scores[winner]
 
-        # Sicherheitsabstand prüfen
+        # Lower the threshold and ratio margin for detection
+        RATIO_MARGIN = 1.08  # Reduced from 1.12
+        MIN_SCORE = 8  # Reduced from 10
+
         others = [v for k, v in scores.items() if k != winner]
-        if all(max_score > o * RATIO_MARGIN for o in others) and max_score > 10:
+        if all(max_score > o * RATIO_MARGIN for o in others) and max_score > MIN_SCORE:
             return winner
         return "Unklar"
 
