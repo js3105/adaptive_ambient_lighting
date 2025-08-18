@@ -77,15 +77,15 @@ class ObjectDetector:
         hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
 
         # Modified HSV ranges with wider tolerances
-        lower_red1 = np.array([0, 70, 50])
+        lower_red1 = np.array([0, 100, 100])
         upper_red1 = np.array([10, 255, 255])
-        lower_red2 = np.array([160, 70, 50])
-        upper_red2 = np.array([180, 255, 255])
+        lower_red2 = np.array([160, 100, 100])
+        upper_red2 = np.array([179, 255, 255])
 
-        lower_yellow = np.array([15, 70, 50])
-        upper_yellow = np.array([40, 255, 255])
+        lower_yellow = np.array([15, 100, 100])
+        upper_yellow = np.array([35, 255, 255])
 
-        lower_green = np.array([40, 70, 50])
+        lower_green = np.array([40, 100, 100])
         upper_green = np.array([90, 255, 255])
 
         mask_red1 = cv2.inRange(hsv, lower_red1, upper_red1)
