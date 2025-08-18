@@ -1,42 +1,31 @@
 import sys
 import os
 import cv2
-
-# Füge das src Verzeichnis zum Python-Pfad hinzu
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from src.camera.camera_manager import CameraManager
 from src.detection.detector import ObjectDetector
 
 def main():
+    camera = None
     try:
-        # Setup camera
         camera = CameraManager()
         camera.setup()
-        print("Camera ready! Press Ctrl+C to exit")
-        
-        # Setup detector
-        detector = ObjectDetector(camera.imx500, camera.intrinsics)
-        
-        # Create window for display
+        print("Camera ready! Press 'q' to exit")
+
+        detector = ObjectDetector(camera.imx500, camera.intrinsics, camera.picam2)
+
         cv2.namedWindow("Object Detection", cv2.WINDOW_NORMAL)
-        
-        # Main loop
+
         while True:
-            # Capture frame and metadata
-            frame = camera.picam2.capture_array()
+            # Besser: erst Metadata, dann Frame – oder gleich Request verwenden.
             metadata = camera.picam2.capture_metadata()
-            
-            # Process frame and draw detections
-            frame_with_detections = detector.process_frame(frame, metadata)
-            
-            # Show frame
-            cv2.imshow("Object Detection", frame_with_detections)
-            
-            # Break loop if 'q' is pressed
+            frame = camera.picam2.capture_array()
+
+            out = detector.process_frame(frame, metadata)
+            cv2.imshow("Object Detection", out)
+
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
-            
+
     except KeyboardInterrupt:
         print("\nStopping camera...")
     except Exception as e:
