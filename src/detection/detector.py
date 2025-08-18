@@ -77,14 +77,17 @@ class ObjectDetector:
         hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
 
         # Modified HSV ranges with wider tolerances
-        lower_red1 = np.array([0, 70, 50])
-        upper_red1 = np.array([10, 255, 255])
-        lower_red2 = np.array([160, 70, 50])
-        upper_red2 = np.array([180, 255, 255])
+        # Red has two ranges in HSV
+        lower_red1 = np.array([0, 70, 50])     # More tolerant saturation and value
+        upper_red1 = np.array([10, 255, 255])  # Wider hue range
+        lower_red2 = np.array([160, 70, 50])   # More tolerant saturation and value
+        upper_red2 = np.array([180, 255, 255]) # Full range to 180
 
-        lower_yellow = np.array([15, 70, 50])
-        upper_yellow = np.array([40, 255, 255])
+        # Yellow is particularly tricky in HSV, widening its range
+        lower_yellow = np.array([15, 70, 50])   # Lower saturation threshold
+        upper_yellow = np.array([40, 255, 255]) # Wider hue range for yellow
 
+        # Green stays mostly the same but with adjusted saturation
         lower_green = np.array([40, 70, 50])
         upper_green = np.array([90, 255, 255])
 
@@ -99,23 +102,21 @@ class ObjectDetector:
         mask_yellow = cv2.GaussianBlur(mask_yellow, (5, 5), 0)
         mask_green = cv2.GaussianBlur(mask_green, (5, 5), 0)
 
-        # Drittelbereiche analysieren
+        # Drittelbereiche analysieren with weighted regions
         t1 = h // 3
         t2 = (2 * h) // 3
+        
+        # Weight the center of each section more heavily
+        red_weights = np.ones(t1)
+        red_weights[t1//4:3*t1//4] = 1.5  # Weight middle of top section more
+        
+        yellow_weights = np.ones(t2-t1)
+        yellow_weights[(t2-t1)//4:3*(t2-t1)//4] = 1.5  # Weight middle of middle section more
+        
+        green_weights = np.ones(h-t2)
+        green_weights[(h-t2)//4:3*(h-t2)//4] = 1.5  # Weight middle of bottom section more
 
-        # Create weights matching the width of the ROI
-        red_weights = np.ones((t1, w))  # Match dimensions of top section
-        yellow_weights = np.ones((t2-t1, w))  # Match dimensions of middle section
-        green_weights = np.ones((h-t2, w))  # Match dimensions of bottom section
-
-        # Weight the center columns more heavily
-        center_start = w // 4
-        center_end = 3 * w // 4
-        red_weights[:, center_start:center_end] = 1.5
-        yellow_weights[:, center_start:center_end] = 1.5
-        green_weights[:, center_start:center_end] = 1.5
-
-        # Calculate weighted means properly considering both dimensions
+        # Apply weights to means
         red_top = np.average(mask_red[:t1], weights=red_weights)
         yellow_mid = np.average(mask_yellow[t1:t2], weights=yellow_weights)
         green_bot = np.average(mask_green[t2:], weights=green_weights)
@@ -125,9 +126,9 @@ class ObjectDetector:
         winner = max(scores, key=scores.get)
         max_score = scores[winner]
 
-        # Reduced thresholds for better detection
-        RATIO_MARGIN = 1.08
-        MIN_SCORE = 8
+        # Lower the threshold and ratio margin for detection
+        RATIO_MARGIN = 1.08  # Reduced from 1.12
+        MIN_SCORE = 8  # Reduced from 10
 
         others = [v for k, v in scores.items() if k != winner]
         if all(max_score > o * RATIO_MARGIN for o in others) and max_score > MIN_SCORE:
@@ -136,31 +137,48 @@ class ObjectDetector:
 
     def draw_callback(self, request, stream="main"):
         if not self.last_detections:
-            print("No detections")  # Debug
             return
+        labels = self._labels()
         with MappedArray(request, stream) as m:
             for det in self.last_detections:
                 try:
                     x, y, w, h = map(int, det.box)
-                    print(f"Box coordinates: x={x}, y={y}, w={w}, h={h}")  # Debug
-                    
                     # Ensure coordinates are within array bounds
                     h_max, w_max = m.array.shape[:2]
                     x = max(0, min(x, w_max-1))
                     y = max(0, min(y, h_max-1))
                     w = min(w, w_max-x)
                     h = min(h, h_max-y)
-                    print(f"Adjusted coordinates: x={x}, y={y}, w={w}, h={h}")  # Debug
-                    
+                    name = labels[int(det.category)] if 0 <= int(det.category) < len(labels) else f"Class {int(det.category)}"
+                
+                    # Für Ampeln: Phasenerkennung durchführen
                     if int(det.category) == self.TRAFFIC_LIGHT_CLASS_ID:
                         roi = m.array[y:y+h, x:x+w]
-                        print(f"ROI shape: {roi.shape}")  # Debug
                         if roi.size > 0:
                             phase = self.detect_phase_by_hsv(roi)
-                            print(f"Detected phase: {phase}")  # Debug
-                        else:
-                            print("ROI has size 0")  # Debug
+                            name = f"{name} ({phase})"
                             
+                            # Drittelbereiche im ROI zeichnen
+                            t1 = y + h // 3
+                            t2 = y + (2 * h) // 3
+                            cv2.line(m.array, (x, t1), (x + w, t1), (255, 255, 255), 1)
+                            cv2.line(m.array, (x, t2), (x + w, t2), (255, 255, 255), 1)
+
+                    label = f"{name} ({det.conf:.2f})"
+
+                    # Text-Hintergrund halbtransparent
+                    (tw, th), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+                    tx, ty = x + 5, y + 15
+                    overlay = m.array.copy()
+                    cv2.rectangle(overlay, (tx, ty - th), (tx + tw, ty + baseline), (255, 255, 255), cv2.FILLED)
+                    cv2.addWeighted(overlay, 0.30, m.array, 0.70, 0, m.array)
+
+                    # Text und Rahmen zeichnen
+                    text_color = (0, 0, 255)
+                    box_color = (0, 255, 255) if int(det.category) == self.TRAFFIC_LIGHT_CLASS_ID else (0, 255, 0, 0)
+                    cv2.putText(m.array, label, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 1)
+                    cv2.rectangle(m.array, (x, y), (x + w, y + h), box_color, 2)
+
                 except (ValueError, IndexError) as e:
-                    print(f"Error in draw_callback: {e}, box: {det.box}")  # Debug
+                    print(f"Error processing detection: {e}")
                     continue
