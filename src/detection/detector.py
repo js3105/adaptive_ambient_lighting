@@ -112,7 +112,7 @@ class ObjectDetector:
         red1   = cv2.inRange(h, 0, 10)
         red2   = cv2.inRange(h, 160, 179)
         yellow = cv2.inRange(h, 15, 35)
-        green  = cv2.inRange(h, 45, 90)
+        green  = cv2.inRange(h, 45, 75)
 
         mask_red    = cv2.bitwise_and(cv2.bitwise_or(red1, red2), gate)
         mask_yellow = cv2.bitwise_and(yellow, gate)
