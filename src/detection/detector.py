@@ -20,7 +20,7 @@ class ObjectDetector:
         self.last_detections = []
         self.TRAFFIC_LIGHT_CLASS_ID = 0
         # Debug/Feintuning für HSV-Trackbars
-        self.enable_hsv_debug = False   # auf True setzen, um Trackbars zu aktivieren
+        self.enable_hsv_debug = True   # auf True setzen, um Trackbars zu aktivieren
         self._hsv_ui_initialized = False
 
     def _labels(self):
