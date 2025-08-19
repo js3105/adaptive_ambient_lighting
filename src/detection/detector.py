@@ -93,14 +93,17 @@ class ObjectDetector:
             return "Unklar"
 
         hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
-
-        # Rot hat zwei Hue-Bereiche
-        mask_red1 = cv2.inRange(hsv, (0,   70, 50), (15, 255, 255))
-        mask_red2 = cv2.inRange(hsv, (170, 70, 50), (180, 255, 255))
+        
+        # Rot
+        mask_red1 = cv2.inRange(hsv, (0,   100, 100), (10, 255, 255))
+        mask_red2 = cv2.inRange(hsv, (160, 100, 100), (179, 255, 255))
         mask_red  = cv2.bitwise_or(mask_red1, mask_red2)
 
-        mask_yellow = cv2.inRange(hsv, (20, 70, 50), (35, 255, 255))
-        mask_green  = cv2.inRange(hsv, (75, 10, 20), (85, 100, 120))
+        # Gelb
+        mask_yellow = cv2.inRange(hsv, (15, 100, 100), (35, 255, 255))
+
+        # Grün
+        mask_green  = cv2.inRange(hsv, (40, 100, 100), (85, 255, 255))
 
         red_pixels    = cv2.countNonZero(mask_red)
         yellow_pixels = cv2.countNonZero(mask_yellow)
