@@ -67,10 +67,10 @@ class CameraManager:
 
         # 4) Kurz stabilisieren lassen, dann Anti-Bloom-Preset setzen (manuell abdunkeln)
         time.sleep(0.6)
-        self.apply_anti_bloom_preset(exposure_us=8000, gain=1.0, awb=False)
+        self.apply_anti_bloom_preset(exposure_us=14000, gain=1.0, awb=False)
 
     # === Anti-Bloom Preset (manuelle Abdunkelung, wirkt auch fürs IMX500-Inference) ===
-    def apply_anti_bloom_preset(self, *, exposure_us=8000, gain=1.0, awb=False):
+    def apply_anti_bloom_preset(self, *, exposure_us=14000, gain=1.0, awb=False):
         """
         Setzt die Kamera bewusst dunkler:
         - kleine ExposureTime (µs) & niedriger Gain -> weniger Bloom/Glare
