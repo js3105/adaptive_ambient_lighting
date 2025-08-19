@@ -3,6 +3,7 @@ import numpy as np
 from picamera2 import MappedArray
 from picamera2.devices import IMX500
 from picamera2.devices.imx500 import postprocess_nanodet_detection
+import logging
 #Funktioniert
 class Detection:
     def __init__(self, coords, category, conf, metadata, imx500: IMX500, picam2):
@@ -11,6 +12,10 @@ class Detection:
         self.box = imx500.convert_inference_coords(coords, metadata, picam2)
 
 class ObjectDetector:
+    DETECTION_THRESHOLD = 0.55
+    DETECTION_IOU = 0.65
+    DETECTION_MAX_DETS = 10
+
     def __init__(self, imx500: IMX500, intrinsics, picam2):
         self.imx500 = imx500
         self.intrinsics = intrinsics
@@ -24,9 +29,11 @@ class ObjectDetector:
         self._v_min = 60
         self._use_r_dominance = True
         self._r_margin = 20
+        self.labels = [] if intrinsics.labels is None else intrinsics.labels
 
     def _labels(self):
-        return [] if self.intrinsics.labels is None else self.intrinsics.labels
+        # Labels werden jetzt im Konstruktor gespeichert
+        return self.labels
 
     def parse_detections(self, metadata):
         np_outputs = self.imx500.get_outputs(metadata, add_batch=True)
@@ -35,7 +42,9 @@ class ObjectDetector:
         input_w, input_h = self.imx500.get_input_size()
         bbox_normalization = getattr(self.intrinsics, "bbox_normalization", False)
         bbox_order = getattr(self.intrinsics, "bbox_order", "yx")
-        threshold, iou, max_dets = 0.55, 0.65, 10
+        threshold = self.DETECTION_THRESHOLD
+        iou = self.DETECTION_IOU
+        max_dets = self.DETECTION_MAX_DETS
 
         if getattr(self.intrinsics, "postprocess", "") == "nanodet":
             boxes, scores, classes = postprocess_nanodet_detection(
@@ -114,10 +123,10 @@ class ObjectDetector:
             return
         labels = self._labels()
         with MappedArray(request, stream) as m:
-            draw_surface = m.array  # Original-Buffer (XRGB8888 → 4 Kanäle)
+            draw_surface = m.array
             h_max, w_max = draw_surface.shape[:2]
 
-            # Für Farblogik: sichere RGB-Ansicht erzeugen
+            # Farbansicht nur einmal berechnen
             if draw_surface.ndim == 3 and draw_surface.shape[2] == 4:
                 proc_rgb_full = cv2.cvtColor(draw_surface, cv2.COLOR_BGRA2RGB)
             elif draw_surface.ndim == 3 and draw_surface.shape[2] == 3:
@@ -125,7 +134,6 @@ class ObjectDetector:
             else:
                 return
 
-            # Overlay nur einmal erzeugen
             overlay = draw_surface.copy()
             for det in self.last_detections:
                 try:
@@ -154,7 +162,7 @@ class ObjectDetector:
                     cv2.rectangle(overlay, (x, y), (x + w, y + h), box_color_bgr, 2)
 
                 except (ValueError, IndexError) as e:
-                    print(f"Error processing detection: {e}")
+                    logging.warning(f"Error processing detection: {e}")
                     continue
             # Overlay nur einmal anwenden
             cv2.addWeighted(overlay, 0.30, draw_surface, 0.70, 0, draw_surface)
