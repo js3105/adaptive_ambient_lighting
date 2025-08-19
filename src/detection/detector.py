@@ -3,7 +3,7 @@ import numpy as np
 from picamera2 import MappedArray
 from picamera2.devices import IMX500
 from picamera2.devices.imx500 import postprocess_nanodet_detection
-
+#Funktioniert
 class Detection:
     def __init__(self, coords, category, conf, metadata, imx500: IMX500, picam2):
         self.category = category
