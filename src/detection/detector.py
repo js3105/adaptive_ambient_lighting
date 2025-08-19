@@ -69,6 +69,10 @@ class ObjectDetector:
 
     def detect_phase_by_hsv(self, roi_bgr):
         """Erkennung der Ampelphase anhand von HSV-Farbraum-Analyse."""
+        # Constants for detection
+        RATIO_MARGIN = 1.05
+        MIN_SCORE = 6
+
         h, w = roi_bgr.shape[:2]
         if h < MIN_ROI_H or w < 5:
             return "Unklar"
@@ -121,10 +125,6 @@ class ObjectDetector:
         print(f"Ratio margin check: {all(max_score > o * RATIO_MARGIN for o in [v for k, v in scores.items() if k != winner])}")
         print(f"Min score check: {max_score > MIN_SCORE}")
         print("========================\n")
-
-        # Reduced thresholds for better detection
-        RATIO_MARGIN = 1.05
-        MIN_SCORE = 6
 
         others = [v for k, v in scores.items() if k != winner]
         if all(max_score > o * RATIO_MARGIN for o in others) and max_score > MIN_SCORE:
