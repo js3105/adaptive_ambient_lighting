@@ -79,7 +79,7 @@ class ObjectDetector:
             return "Unklar"
 
         h, w = roi_bgr.shape[:2]
-        if h < 6:
+        if h < 1:
             return "Unklar"
 
         hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
