@@ -80,16 +80,23 @@ class ObjectDetector:
         # In HSV konvertieren
         hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
 
+        # Print average HSV values for debugging
+        print("\n=== Raw HSV Values ===")
+        print(f"Average H: {np.mean(hsv[:,:,0]):.2f}")
+        print(f"Average S: {np.mean(hsv[:,:,1]):.2f}")
+        print(f"Average V: {np.mean(hsv[:,:,2]):.2f}")
+
         # Modified HSV ranges with wider tolerances
-        lower_red1 = np.array([0, 100, 100])
+        # Adjusted ranges for better detection
+        lower_red1 = np.array([0, 50, 50])      # Reduced S and V thresholds
         upper_red1 = np.array([10, 255, 255])
-        lower_red2 = np.array([160, 100, 100])
-        upper_red2 = np.array([179, 255, 255])
+        lower_red2 = np.array([160, 50, 50])    # Reduced S and V thresholds
+        upper_red2 = np.array([180, 255, 255])  # Increased to 180 for full range
 
-        lower_yellow = np.array([15, 100, 100])
-        upper_yellow = np.array([35, 255, 255])
+        lower_yellow = np.array([20, 50, 50])    # Adjusted yellow range and reduced thresholds
+        upper_yellow = np.array([40, 255, 255])
 
-        lower_green = np.array([40, 100, 100])
+        lower_green = np.array([40, 50, 50])     # Kept same but reduced S and V thresholds
         upper_green = np.array([90, 255, 255])
 
         mask_red1 = cv2.inRange(hsv, lower_red1, upper_red1)
@@ -112,8 +119,12 @@ class ObjectDetector:
         print("\n=== HSV Analysis Debug ===")
         print(f"ROI Size: {w}x{h}")
         print(f"Red value: {red_value:.2f}")
+        print(f"  Red range 1: H={lower_red1[0]}-{upper_red1[0]}, S={lower_red1[1]}-{upper_red1[1]}, V={lower_red1[2]}-{upper_red1[2]}")
+        print(f"  Red range 2: H={lower_red2[0]}-{upper_red2[0]}, S={lower_red2[1]}-{upper_red2[1]}, V={lower_red2[2]}-{upper_red2[2]}")
         print(f"Yellow value: {yellow_value:.2f}")
+        print(f"  Yellow range: H={lower_yellow[0]}-{upper_yellow[0]}, S={lower_yellow[1]}-{upper_yellow[1]}, V={lower_yellow[2]}-{upper_yellow[2]}")
         print(f"Green value: {green_value:.2f}")
+        print(f"  Green range: H={lower_green[0]}-{upper_green[0]}, S={lower_green[1]}-{upper_green[1]}, V={lower_green[2]}-{upper_green[2]}")
 
         # Adjust scoring with lower threshold
         scores = {"Rot": red_value, "Gelb": yellow_value, "Gruen": green_value}
