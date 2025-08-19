@@ -119,14 +119,14 @@ class ObjectDetector:
 
             # Für Farblogik: sichere RGB-Ansicht erzeugen
             if draw_surface.ndim == 3 and draw_surface.shape[2] == 4:
-                # XRGB8888 wird in NumPy i.d.R. als BGRA dargestellt → nach RGB konvertieren
                 proc_rgb_full = cv2.cvtColor(draw_surface, cv2.COLOR_BGRA2RGB)
             elif draw_surface.ndim == 3 and draw_surface.shape[2] == 3:
-                # Selten: RGB888
-                proc_rgb_full = draw_surface[:, :, ::-1]  # falls es BGR wäre → zu RGB (sicher)
+                proc_rgb_full = draw_surface[:, :, ::-1]
             else:
-                return  # ungeeignetes Format
+                return
 
+            # Overlay nur einmal erzeugen
+            overlay = draw_surface.copy()
             for det in self.last_detections:
                 try:
                     x, y, w, h = map(int, det.box)
@@ -135,30 +135,26 @@ class ObjectDetector:
 
                     name = labels[int(det.category)] if 0 <= int(det.category) < len(labels) else f"Class {int(det.category)}"
 
+                    # Nur für Ampeln die ROI-Analyse durchführen
                     if int(det.category) == self.TRAFFIC_LIGHT_CLASS_ID:
                         x, y, w, h = self._shrink_box(x, y, w, h, fx=0.18, fy=0.05, w_max=w_max, h_max=h_max)
-                        # ROI aus der RGB-Prozessansicht
                         roi_rgb = proc_rgb_full[y:y+h, x:x+w]
                         if roi_rgb.size > 0:
                             phase = self.detect_phase_by_hsv(roi_rgb)
                             name = f"{name} ({phase})"
 
                     label = f"{name} ({det.conf:.2f})"
-
                     (tw, th), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
                     tx, ty = x + 5, y + 15
 
-                    # halbtransparenter Hintergrund auf dem ORIGINAL-Buffer zeichnen (BGR(A)-Farben!)
-                    overlay = draw_surface.copy()
                     cv2.rectangle(overlay, (tx, ty - th), (tx + tw, ty + baseline), (255, 255, 255), cv2.FILLED)
-                    cv2.addWeighted(overlay, 0.30, draw_surface, 0.70, 0, draw_surface)
-
                     text_color_bgr = (0, 0, 255)
                     box_color_bgr  = (0, 255, 255) if int(det.category) == self.TRAFFIC_LIGHT_CLASS_ID else (0, 255, 0)
-
-                    cv2.putText(draw_surface, label, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color_bgr, 1)
-                    cv2.rectangle(draw_surface, (x, y), (x + w, y + h), box_color_bgr, 2)
+                    cv2.putText(overlay, label, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color_bgr, 1)
+                    cv2.rectangle(overlay, (x, y), (x + w, y + h), box_color_bgr, 2)
 
                 except (ValueError, IndexError) as e:
                     print(f"Error processing detection: {e}")
                     continue
+            # Overlay nur einmal anwenden
+            cv2.addWeighted(overlay, 0.30, draw_surface, 0.70, 0, draw_surface)
