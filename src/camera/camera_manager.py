@@ -80,7 +80,7 @@ class CameraManager:
             Abend:  exposure_us ~ 8000–14000, gain 1.2–1.8
         """
         self.picam2.set_controls({
-            "AeEnable": False,                 # AE aus -> manuell
+            "AeEnable": True,                 # AE aus -> manuell
             "ExposureTime": int(exposure_us),  # µs: kleiner = dunkler
             "AnalogueGain": float(gain),
             "AwbEnable": bool(awb),
