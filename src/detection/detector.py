@@ -130,6 +130,14 @@ class ObjectDetector:
                     # Für Ampeln: Phasenerkennung durchführen (Drittel-Logik)
                     if int(det.category) == self.TRAFFIC_LIGHT_CLASS_ID:
                         roi = m.array[y:y+h, x:x+w]
+
+                        # ROI innen etwas verkleinern (z. B. 10 % an allen Seiten abschneiden)
+                        shrink = 0.1
+                        h_roi, w_roi = roi.shape[:2]
+                        dx = int(w_roi * shrink)
+                        dy = int(h_roi * shrink)
+                        roi = roi[dy:h_roi-dy, dx:w_roi-dx]
+
                         if roi.size > 0:
                             phase = self.detect_phase_by_hsv(roi)
                             name = f"{name} ({phase})"
