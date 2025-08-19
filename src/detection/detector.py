@@ -99,29 +99,13 @@ class ObjectDetector:
         mask_yellow = cv2.GaussianBlur(mask_yellow, (5, 5), 0)
         mask_green = cv2.GaussianBlur(mask_green, (5, 5), 0)
 
-        # Drittelbereiche analysieren
-        t1 = h // 3
-        t2 = (2 * h) // 3
-
-        # Create weights matching the width of the ROI
-        """red_weights = np.ones((t1, w))  # Match dimensions of top section
-        yellow_weights = np.ones((t2-t1, w))  # Match dimensions of middle section
-        green_weights = np.ones((h-t2, w))"""  # Match dimensions of bottom section
-
-        # Weight the center columns more heavily
-        """center_start = w // 4
-        center_end = 3 * w // 4
-        red_weights[:, center_start:center_end] = 1.5
-        yellow_weights[:, center_start:center_end] = 1.5
-        green_weights[:, center_start:center_end] = 1.5"""
-
-        # Calculate weighted means properly considering both dimensions
-        red_top = np.average(mask_red[:t1])#, weights=red_weights)
-        yellow_mid = np.average(mask_yellow[t1:t2])#, weights=yellow_weights)
-        green_bot = np.average(mask_green[t2:])#, weights=green_weights)
+        # Calculate averages for entire masks
+        red_value = np.average(mask_red)
+        yellow_value = np.average(mask_yellow)
+        green_value = np.average(mask_green)
 
         # Adjust scoring with lower threshold
-        scores = {"Rot": red_top, "Gelb": yellow_mid, "Gruen": green_bot}
+        scores = {"Rot": red_value, "Gelb": yellow_value, "Gruen": green_value}
         winner = max(scores, key=scores.get)
         max_score = scores[winner]
 
@@ -156,12 +140,6 @@ class ObjectDetector:
                         if roi.size > 0:
                             phase = self.detect_phase_by_hsv(roi)
                             name = f"{name} ({phase})"
-                            
-                            # Drittelbereiche im ROI zeichnen
-                            t1 = y + h // 3
-                            t2 = y + (2 * h) // 3
-                            cv2.line(m.array, (x, t1), (x + w, t1), (255, 255, 255), 1)
-                            cv2.line(m.array, (x, t2), (x + w, t2), (255, 255, 255), 1)
 
                     label = f"{name} ({det.conf:.2f})"
 
