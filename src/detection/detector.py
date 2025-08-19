@@ -100,7 +100,7 @@ class ObjectDetector:
         mask_red  = cv2.bitwise_or(mask_red1, mask_red2)
 
         mask_yellow = cv2.inRange(hsv, (20, 70, 50), (35, 255, 255))
-        mask_green  = cv2.inRange(hsv, (40, 70, 50), (90, 255, 255))
+        mask_green  = cv2.inRange(hsv, (70, 70, 50), (85, 255, 255))
 
         red_pixels    = cv2.countNonZero(mask_red)
         yellow_pixels = cv2.countNonZero(mask_yellow)
