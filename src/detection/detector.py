@@ -20,12 +20,21 @@ class ObjectDetector:
         self.last_detections = []
         self.TRAFFIC_LIGHT_CLASS_ID = 0
 
+        # --- Tuning-Parameter für dunkle Räume ---
+        self._gamma = 1.6
+        self._clahe_clip = 2.0
+        self._clahe_grid = 8
+        self._s_min = 60
+        self._v_min = 60
+        # Optionaler Rot-Fallback (R-Kanal-Dominanz)
+        self._use_r_dominance = True
+        self._r_margin = 20
+
     def _labels(self):
-        """Get labels from intrinsics"""
         if self.intrinsics.labels is None:
             return []
         return self.intrinsics.labels
-    
+
     def parse_detections(self, metadata):
         np_outputs = self.imx500.get_outputs(metadata, add_batch=True)
         if np_outputs is None:
@@ -63,10 +72,6 @@ class ObjectDetector:
         return self.last_detections
 
     def _shrink_box(self, x, y, w, h, *, fx=0.12, fy=0.18, w_max=None, h_max=None):
-        """
-        Schrumpft die Box innen: fx = Anteil seitlich, fy = Anteil oben/unten.
-        w_max/h_max = Bildgrenzen zur Sicherheit (werden aus draw_callback übergeben).
-        """
         sx = x + int(w * fx)
         ex = x + w - int(w * fx)
         sy = y + int(h * fy)
@@ -80,31 +85,64 @@ class ObjectDetector:
             ey = max(sy + 2, min(ey, h_max - 1))
 
         return sx, sy, ex - sx, ey - sy
-    
-    # --- RAW-HSV-Farblogik (minimal) ---
+
+    # --- Punkt 4: robuste Farbdetektion (Gamma + CLAHE + Gate + Morph + optional R-Dominanz) ---
+
+    def _preprocess_bgr(self, img_bgr):
+        # Gamma
+        lut = np.array([((i / 255.0) ** (1.0 / self._gamma)) * 255 for i in range(256)]).astype("uint8")
+        img_gamma = cv2.LUT(img_bgr, lut)
+
+        # CLAHE auf V
+        hsv = cv2.cvtColor(img_gamma, cv2.COLOR_BGR2HSV)
+        h, s, v = cv2.split(hsv)
+        clahe = cv2.createCLAHE(clipLimit=self._clahe_clip, tileGridSize=(self._clahe_grid, self._clahe_grid))
+        v = clahe.apply(v)
+        hsv = cv2.merge([h, s, v])
+        return cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+
+    def _traffic_light_masks(self, img_bgr):
+        hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+        h, s, v = cv2.split(hsv)
+
+        # S/V-Gate
+        gate = cv2.inRange(cv2.merge([h, s, v]), (0, self._s_min, self._v_min), (179, 255, 255))
+
+        # Hue-Ranges
+        red1   = cv2.inRange(h, 0, 10)
+        red2   = cv2.inRange(h, 160, 179)
+        yellow = cv2.inRange(h, 15, 35)
+        green  = cv2.inRange(h, 45, 90)
+
+        mask_red    = cv2.bitwise_and(cv2.bitwise_or(red1, red2), gate)
+        mask_yellow = cv2.bitwise_and(yellow, gate)
+        mask_green  = cv2.bitwise_and(green, gate)
+
+        # Morphologische Säuberung
+        k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        mask_red    = cv2.morphologyEx(mask_red, cv2.MORPH_OPEN, k, iterations=1)
+        mask_yellow = cv2.morphologyEx(mask_yellow, cv2.MORPH_OPEN, k, iterations=1)
+        mask_green  = cv2.morphologyEx(mask_green, cv2.MORPH_OPEN, k, iterations=1)
+
+        # Optional: R-Kanal-Dominanz als extra Sicherheit für Rot
+        if self._use_r_dominance:
+            b, g, r = cv2.split(img_bgr)
+            r_dom = ((r.astype(np.int16) > g.astype(np.int16) + self._r_margin) &
+                     (r.astype(np.int16) > b.astype(np.int16) + self._r_margin))
+            r_dom = (r_dom.astype(np.uint8) * 255)
+            mask_red = cv2.bitwise_and(mask_red, r_dom)
+
+        return mask_red, mask_yellow, mask_green
+
     def detect_phase_by_hsv(self, roi_bgr):
-        """
-        Minimal-Variante:
-        - ROI in HSV
-        - feste Masken für Rot/Gelb/Grün
-        - Pixel zählen, größte Farbe gewinnt
-        """
         if roi_bgr is None or roi_bgr.size == 0:
             return "Unklar"
 
-        hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
-        
-        # Rot
-        mask_red1 = cv2.inRange(hsv, (0,   100, 100), (10, 255, 255))
-        mask_red2 = cv2.inRange(hsv, (160, 100, 100), (179, 255, 255))
-        mask_red  = cv2.bitwise_or(mask_red1, mask_red2)
+        # Vorverarbeitung stabilisiert Hue in dunkler Umgebung
+        roi_pp = self._preprocess_bgr(roi_bgr)
 
-        # Gelb
-        mask_yellow = cv2.inRange(hsv, (15, 100, 100), (35, 255, 255))
-
-        # Grün
-        mask_green  = cv2.inRange(hsv, (40, 100, 100), (85, 255, 255))
-
+        # Masken + Zählung
+        mask_red, mask_yellow, mask_green = self._traffic_light_masks(roi_pp)
         red_pixels    = cv2.countNonZero(mask_red)
         yellow_pixels = cv2.countNonZero(mask_yellow)
         green_pixels  = cv2.countNonZero(mask_green)
@@ -119,7 +157,8 @@ class ObjectDetector:
         elif max_pixels == green_pixels:
             return "Gruen"
         return "Unklar"
-    # --- Ende RAW-HSV-Farblogik ---
+
+    # --- Ende Punkt 4 ---
 
     def draw_callback(self, request, stream="main"):
         if not self.last_detections:
@@ -129,37 +168,29 @@ class ObjectDetector:
             for det in self.last_detections:
                 try:
                     x, y, w, h = map(int, det.box)
-                    # Ensure coordinates are within array bounds
                     h_max, w_max = m.array.shape[:2]
                     x = max(0, min(x, w_max - 1))
                     y = max(0, min(y, h_max - 1))
                     w = min(w, w_max - x)
                     h = min(h, h_max - y)
 
-                    # Basisname
                     name = labels[int(det.category)] if 0 <= int(det.category) < len(labels) else f"Class {int(det.category)}"
 
-                    # Für Ampeln: Box schrumpfen + Phase bestimmen
                     if int(det.category) == self.TRAFFIC_LIGHT_CLASS_ID:
-                        # Box innen verkleinern (links/rechts, oben/unten)
                         x, y, w, h = self._shrink_box(x, y, w, h, fx=0.18, fy=0.05, w_max=w_max, h_max=h_max)
-
                         roi = m.array[y:y+h, x:x+w]
                         if roi.size > 0:
                             phase = self.detect_phase_by_hsv(roi)
                             name = f"{name} ({phase})"
 
-                    # >>> label VOR erster Verwendung definieren <<<
                     label = f"{name} ({det.conf:.2f})"
 
-                    # Text-Hintergrund halbtransparent
                     (tw, th), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
                     tx, ty = x + 5, y + 15
                     overlay = m.array.copy()
                     cv2.rectangle(overlay, (tx, ty - th), (tx + tw, ty + baseline), (255, 255, 255), cv2.FILLED)
                     cv2.addWeighted(overlay, 0.30, m.array, 0.70, 0, m.array)
 
-                    # Text und Rahmen zeichnen
                     text_color = (0, 0, 255)
                     box_color = (0, 255, 255) if int(det.category) == self.TRAFFIC_LIGHT_CLASS_ID else (0, 255, 0)
                     cv2.putText(m.array, label, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 1)
