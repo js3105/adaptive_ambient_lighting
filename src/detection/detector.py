@@ -138,8 +138,8 @@ class ObjectDetector:
 
                     # Für Ampeln: Box schrumpfen + Phase bestimmen
                     if int(det.category) == self.TRAFFIC_LIGHT_CLASS_ID:
-                        # Box innen verkleinern (z. B. 12% links/rechts, 18% oben/unten)
-                        x, y, w, h = self._shrink_box(x, y, w, h, fx=0.15, fy=0.12, w_max=w_max, h_max=h_max)
+                        # Box innen verkleinern (links/rechts, oben/unten)
+                        x, y, w, h = self._shrink_box(x, y, w, h, fx=0.18, fy=0.05, w_max=w_max, h_max=h_max)
 
                         roi = m.array[y:y+h, x:x+w]
                         if roi.size > 0:
