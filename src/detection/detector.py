@@ -3,6 +3,7 @@ import numpy as np
 from picamera2 import MappedArray
 from picamera2.devices import IMX500
 from picamera2.devices.imx500 import postprocess_nanodet_detection
+from datetime import datetime
 
 # Konstanten für die Ampelphasenerkennung
 MIN_ROI_H = 24
@@ -23,8 +24,8 @@ class ObjectDetector:
         self.picam2 = picam2
         self.last_detections = []
         self.TRAFFIC_LIGHT_CLASS_ID = 0
+        self.user = "js3105"  # Current user's login
 
-    
     def _labels(self):
         """Get labels from intrinsics"""
         if self.intrinsics.labels is None:
@@ -69,10 +70,8 @@ class ObjectDetector:
 
     def detect_phase_by_hsv(self, roi_bgr):
         """Erkennung der Ampelphase anhand von HSV-Farbraum-Analyse."""
-        # Constants for detection
-        RATIO_MARGIN = 1.05
-        MIN_SCORE = 6
-
+        current_time = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+        
         h, w = roi_bgr.shape[:2]
         if h < MIN_ROI_H or w < 5:
             return "Unklar"
@@ -80,67 +79,60 @@ class ObjectDetector:
         # In HSV konvertieren
         hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
 
-        # Print average HSV values for debugging
-        print("\n=== Raw HSV Values ===")
-        print(f"Average H: {np.mean(hsv[:,:,0]):.2f}")
-        print(f"Average S: {np.mean(hsv[:,:,1]):.2f}")
-        print(f"Average V: {np.mean(hsv[:,:,2]):.2f}")
-
-        # Modified HSV ranges with wider tolerances
-        # Adjusted ranges for better detection
-        lower_red1 = np.array([0, 50, 50])      # Reduced S and V thresholds
-        upper_red1 = np.array([10, 255, 255])
-        lower_red2 = np.array([160, 50, 50])    # Reduced S and V thresholds
-        upper_red2 = np.array([180, 255, 255])  # Increased to 180 for full range
-
-        lower_yellow = np.array([20, 50, 50])    # Adjusted yellow range and reduced thresholds
-        upper_yellow = np.array([40, 255, 255])
-
-        lower_green = np.array([40, 50, 50])     # Kept same but reduced S and V thresholds
-        upper_green = np.array([90, 255, 255])
-
-        mask_red1 = cv2.inRange(hsv, lower_red1, upper_red1)
-        mask_red2 = cv2.inRange(hsv, lower_red2, upper_red2)
-        mask_red = cv2.bitwise_or(mask_red1, mask_red2)
-        mask_yellow = cv2.inRange(hsv, lower_yellow, upper_yellow)
-        mask_green = cv2.inRange(hsv, lower_green, upper_green)
-
-        # Add Gaussian blur to reduce noise
-        mask_red = cv2.GaussianBlur(mask_red, (5, 5), 0)
-        mask_yellow = cv2.GaussianBlur(mask_yellow, (5, 5), 0)
-        mask_green = cv2.GaussianBlur(mask_green, (5, 5), 0)
-
-        # Calculate averages for entire masks
-        red_value = np.average(mask_red)
-        yellow_value = np.average(mask_yellow)
-        green_value = np.average(mask_green)
-
-        # Debug output
-        print("\n=== HSV Analysis Debug ===")
+        # Print raw color data
+        print("\n=== Raw Color Analysis ===")
+        print(f"Timestamp (UTC): {current_time}")
+        print(f"User: {self.user}")
         print(f"ROI Size: {w}x{h}")
-        print(f"Red value: {red_value:.2f}")
-        print(f"  Red range 1: H={lower_red1[0]}-{upper_red1[0]}, S={lower_red1[1]}-{upper_red1[1]}, V={lower_red1[2]}-{upper_red1[2]}")
-        print(f"  Red range 2: H={lower_red2[0]}-{upper_red2[0]}, S={lower_red2[1]}-{upper_red2[1]}, V={lower_red2[2]}-{upper_red2[2]}")
-        print(f"Yellow value: {yellow_value:.2f}")
-        print(f"  Yellow range: H={lower_yellow[0]}-{upper_yellow[0]}, S={lower_yellow[1]}-{upper_yellow[1]}, V={lower_yellow[2]}-{upper_yellow[2]}")
-        print(f"Green value: {green_value:.2f}")
-        print(f"  Green range: H={lower_green[0]}-{upper_green[0]}, S={lower_green[1]}-{upper_green[1]}, V={lower_green[2]}-{upper_green[2]}")
+        print("\nRaw HSV Values (min, mean, max):")
+        print(f"Hue: {np.min(hsv[:,:,0]):.0f}, {np.mean(hsv[:,:,0]):.0f}, {np.max(hsv[:,:,0]):.0f}")
+        print(f"Saturation: {np.min(hsv[:,:,1]):.0f}, {np.mean(hsv[:,:,1]):.0f}, {np.max(hsv[:,:,1]):.0f}")
+        print(f"Value: {np.min(hsv[:,:,2]):.0f}, {np.mean(hsv[:,:,2]):.0f}, {np.max(hsv[:,:,2]):.0f}")
 
-        # Adjust scoring with lower threshold
-        scores = {"Rot": red_value, "Gelb": yellow_value, "Gruen": green_value}
-        winner = max(scores, key=scores.get)
-        max_score = scores[winner]
+        # Farbmasken definieren (HSV-Werte aus YOLOv8-Beispiel)
+        mask_red1 = cv2.inRange(hsv, (0, 70, 50), (10, 255, 255))
+        mask_red2 = cv2.inRange(hsv, (170, 70, 50), (180, 255, 255))
+        mask_red = cv2.bitwise_or(mask_red1, mask_red2)
+        mask_yellow = cv2.inRange(hsv, (15, 70, 50), (35, 255, 255))
+        mask_green = cv2.inRange(hsv, (40, 70, 50), (90, 255, 255))
 
-        # Print decision information
-        print(f"Winner: {winner} (score: {max_score:.2f})")
-        print(f"Ratio margin check: {all(max_score > o * RATIO_MARGIN for o in [v for k, v in scores.items() if k != winner])}")
-        print(f"Min score check: {max_score > MIN_SCORE}")
-        print("========================\n")
+        # Pixelanzahl jeder Farbe zählen
+        red_pixels = cv2.countNonZero(mask_red)
+        yellow_pixels = cv2.countNonZero(mask_yellow)
+        green_pixels = cv2.countNonZero(mask_green)
 
-        others = [v for k, v in scores.items() if k != winner]
-        if all(max_score > o * RATIO_MARGIN for o in others) and max_score > MIN_SCORE:
-            return winner
-        return "Unklar"
+        # Calculate percentages
+        total_pixels = w * h
+        red_percentage = (red_pixels / total_pixels) * 100
+        yellow_percentage = (yellow_pixels / total_pixels) * 100
+        green_percentage = (green_pixels / total_pixels) * 100
+
+        print("\nPixel Counts and Percentages:")
+        print(f"Red: {red_pixels} pixels ({red_percentage:.1f}%)")
+        print(f"Yellow: {yellow_pixels} pixels ({yellow_percentage:.1f}%)")
+        print(f"Green: {green_pixels} pixels ({green_percentage:.1f}%)")
+
+        # Größte Farbe bestimmen → Ampelphase
+        max_pixels = max(red_pixels, yellow_pixels, green_pixels)
+        
+        # Add a minimum threshold to avoid false positives
+        MIN_PIXELS = 50  # Adjust this threshold as needed
+
+        if max_pixels < MIN_PIXELS:
+            phase = "Unklar"
+        elif max_pixels == red_pixels:
+            phase = "Rot"
+        elif max_pixels == yellow_pixels:
+            phase = "Gelb"
+        elif max_pixels == green_pixels:
+            phase = "Gruen"
+        else:
+            phase = "Unklar"
+
+        print(f"\nDetected phase: {phase}")
+        print("========================")
+
+        return phase
 
     def draw_callback(self, request, stream="main"):
         if not self.last_detections:
