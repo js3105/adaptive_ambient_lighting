@@ -62,6 +62,25 @@ class ObjectDetector:
         ]
         return self.last_detections
 
+    def _shrink_box(self, x, y, w, h, *, fx=0.12, fy=0.18, w_max=None, h_max=None):
+        """
+        Schrumpft die Box innen: fx = Anteil seitlich, fy = Anteil oben/unten.
+        w_max/h_max = Bildgrenzen zur Sicherheit (werden aus draw_callback übergeben).
+        """
+        sx = x + int(w * fx)
+        ex = x + w - int(w * fx)
+        sy = y + int(h * fy)
+        ey = y + h - int(h * fy)
+
+        if w_max is not None:
+            sx = max(0, min(sx, w_max - 2))
+            ex = max(sx + 2, min(ex, w_max - 1))
+        if h_max is not None:
+            sy = max(0, min(sy, h_max - 2))
+            ey = max(sy + 2, min(ey, h_max - 1))
+
+        return sx, sy, ex - sx, ey - sy
+    
     # --- RAW-HSV-Farblogik (minimal) ---
     def detect_phase_by_hsv(self, roi_bgr):
         """
@@ -117,12 +136,14 @@ class ObjectDetector:
                 
                     # Für Ampeln: Phasenerkennung durchführen (RAW-HSV)
                     if int(det.category) == self.TRAFFIC_LIGHT_CLASS_ID:
+                        # Box innen verkleinern (z. B. 12% links/rechts, 18% oben/unten)
+                        x, y, w, h = self._shrink_box(x, y, w, h, fx=0.12, fy=0.18,
+                                                       w_max=w_max, h_max=h_max)
+
                         roi = m.array[y:y+h, x:x+w]
                         if roi.size > 0:
                             phase = self.detect_phase_by_hsv(roi)
                             name = f"{name} ({phase})"
-
-                    label = f"{name} ({det.conf:.2f})"
 
                     # Text-Hintergrund halbtransparent
                     (tw, th), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
