@@ -132,7 +132,7 @@ class ObjectDetector:
                         roi = m.array[y:y+h, x:x+w]
 
                         # ROI innen etwas verkleinern (z. B. 10 % an allen Seiten abschneiden)
-                        shrink = 0.1
+                        shrink = 0.3
                         h_roi, w_roi = roi.shape[:2]
                         dx = int(w_roi * shrink)
                         dy = int(h_roi * shrink)
