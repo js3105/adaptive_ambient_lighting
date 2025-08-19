@@ -183,3 +183,45 @@ class ObjectDetector:
         print(f"Detected phase: {phase}")
         print("========================")
         return phase
+    
+    def draw_callback(self, request, stream="main"):
+        if not self.last_detections:
+            return
+        labels = self._labels()
+        with MappedArray(request, stream) as m:
+            for det in self.last_detections:
+                try:
+                    x, y, w, h = map(int, det.box)
+                    # Ensure coordinates are within array bounds
+                    h_max, w_max = m.array.shape[:2]
+                    x = max(0, min(x, w_max-1))
+                    y = max(0, min(y, h_max-1))
+                    w = min(w, w_max-x)
+                    h = min(h, h_max-y)
+                    name = labels[int(det.category)] if 0 <= int(det.category) < len(labels) else f"Class {int(det.category)}"
+                
+                    # Für Ampeln: Phasenerkennung durchführen
+                    if int(det.category) == self.TRAFFIC_LIGHT_CLASS_ID:
+                        roi = m.array[y:y+h, x:x+w]
+                        if roi.size > 0:
+                            phase = self.detect_phase_by_hsv(roi)
+                            name = f"{name} ({phase})"
+
+                    label = f"{name} ({det.conf:.2f})"
+
+                    # Text-Hintergrund halbtransparent
+                    (tw, th), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+                    tx, ty = x + 5, y + 15
+                    overlay = m.array.copy()
+                    cv2.rectangle(overlay, (tx, ty - th), (tx + tw, ty + baseline), (255, 255, 255), cv2.FILLED)
+                    cv2.addWeighted(overlay, 0.30, m.array, 0.70, 0, m.array)
+
+                    # Text und Rahmen zeichnen
+                    text_color = (0, 0, 255)
+                    box_color = (0, 255, 255) if int(det.category) == self.TRAFFIC_LIGHT_CLASS_ID else (0, 255, 0, 0)
+                    cv2.putText(m.array, label, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 1)
+                    cv2.rectangle(m.array, (x, y), (x + w, y + h), box_color, 2)
+
+                except (ValueError, IndexError) as e:
+                    print(f"Error processing detection: {e}")
+                    continue
