@@ -67,10 +67,10 @@ class CameraManager:
 
         # 4) Kurz stabilisieren lassen, dann Anti-Bloom-Preset setzen (manuell abdunkeln)
         time.sleep(0.6)
-        self.apply_anti_bloom_preset(exposure_us=6000, gain=1.0, awb=False)
+        self.apply_anti_bloom_preset(exposure_us=8000, gain=1.0, awb=False)
 
     # === Anti-Bloom Preset (manuelle Abdunkelung, wirkt auch fürs IMX500-Inference) ===
-    def apply_anti_bloom_preset(self, *, exposure_us=6000, gain=1.0, awb=False):
+    def apply_anti_bloom_preset(self, *, exposure_us=8000, gain=1.0, awb=False):
         """
         Setzt die Kamera bewusst dunkler:
         - kleine ExposureTime (µs) & niedriger Gain -> weniger Bloom/Glare
@@ -80,7 +80,7 @@ class CameraManager:
             Abend:  exposure_us ~ 8000–14000, gain 1.2–1.8
         """
         self.picam2.set_controls({
-            "AeEnable": True,                 # AE aus -> manuell
+            "AeEnable": False,                 # AE aus -> manuell
             "ExposureTime": int(exposure_us),  # µs: kleiner = dunkler
             "AnalogueGain": float(gain),
             "AwbEnable": bool(awb),
