@@ -86,33 +86,34 @@ class ObjectDetector:
 
         return sx, sy, ex - sx, ey - sy
 
-    # --- Punkt 4: robuste Farbdetektion (Gamma + CLAHE + Gate + Morph + optional R-Dominanz) ---
+    # --- Robuste Farbdetektion (Gamma + CLAHE + Gate + Morph + optional R-Dominanz) ---
+    # ACHTUNG: Wir arbeiten hier mit RGB (weil Picamera2 "RGB888" liefert)!
 
-    def _preprocess_bgr(self, img_bgr):
+    def _preprocess_rgb(self, img_rgb):
         # Gamma
         lut = np.array([((i / 255.0) ** (1.0 / self._gamma)) * 255 for i in range(256)]).astype("uint8")
-        img_gamma = cv2.LUT(img_bgr, lut)
+        img_gamma = cv2.LUT(img_rgb, lut)
 
-        # CLAHE auf V
-        hsv = cv2.cvtColor(img_gamma, cv2.COLOR_BGR2HSV)
+        # CLAHE auf V des HSV (ausgehend von RGB!)
+        hsv = cv2.cvtColor(img_gamma, cv2.COLOR_RGB2HSV)
         h, s, v = cv2.split(hsv)
         clahe = cv2.createCLAHE(clipLimit=self._clahe_clip, tileGridSize=(self._clahe_grid, self._clahe_grid))
         v = clahe.apply(v)
         hsv = cv2.merge([h, s, v])
-        return cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+        return cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)
 
-    def _traffic_light_masks(self, img_bgr):
-        hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+    def _traffic_light_masks(self, img_rgb):
+        hsv = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2HSV)
         h, s, v = cv2.split(hsv)
 
         # S/V-Gate
         gate = cv2.inRange(cv2.merge([h, s, v]), (0, self._s_min, self._v_min), (179, 255, 255))
 
-        # Hue-Ranges
+        # Hue-Ranges (OpenCV Hue 0..179)
         red1   = cv2.inRange(h, 0, 10)
         red2   = cv2.inRange(h, 160, 179)
         yellow = cv2.inRange(h, 15, 35)
-        green  = cv2.inRange(h, 45, 75)
+        green  = cv2.inRange(h, 45, 75)  # bei Bedarf 45..90 erweitern
 
         mask_red    = cv2.bitwise_and(cv2.bitwise_or(red1, red2), gate)
         mask_yellow = cv2.bitwise_and(yellow, gate)
@@ -124,9 +125,11 @@ class ObjectDetector:
         mask_yellow = cv2.morphologyEx(mask_yellow, cv2.MORPH_OPEN, k, iterations=1)
         mask_green  = cv2.morphologyEx(mask_green, cv2.MORPH_OPEN, k, iterations=1)
 
-        # Optional: R-Kanal-Dominanz als extra Sicherheit für Rot
+        # Optional: R-Kanal-Dominanz (auf RGB!)
         if self._use_r_dominance:
-            b, g, r = cv2.split(img_bgr)
+            r = img_rgb[:, :, 0]  # Achtung: bei RGB ist Reihenfolge R,G,B -> Index 0 = R
+            g = img_rgb[:, :, 1]
+            b = img_rgb[:, :, 2]
             r_dom = ((r.astype(np.int16) > g.astype(np.int16) + self._r_margin) &
                      (r.astype(np.int16) > b.astype(np.int16) + self._r_margin))
             r_dom = (r_dom.astype(np.uint8) * 255)
@@ -134,12 +137,12 @@ class ObjectDetector:
 
         return mask_red, mask_yellow, mask_green
 
-    def detect_phase_by_hsv(self, roi_bgr):
-        if roi_bgr is None or roi_bgr.size == 0:
+    def detect_phase_by_hsv(self, roi_rgb):
+        if roi_rgb is None or roi_rgb.size == 0:
             return "Unklar"
 
         # Vorverarbeitung stabilisiert Hue in dunkler Umgebung
-        roi_pp = self._preprocess_bgr(roi_bgr)
+        roi_pp = self._preprocess_rgb(roi_rgb)
 
         # Masken + Zählung
         mask_red, mask_yellow, mask_green = self._traffic_light_masks(roi_pp)
@@ -158,17 +161,20 @@ class ObjectDetector:
             return "Gruen"
         return "Unklar"
 
-    # --- Ende Punkt 4 ---
+    # --- Ende Farbdetektion ---
 
     def draw_callback(self, request, stream="main"):
         if not self.last_detections:
             return
         labels = self._labels()
         with MappedArray(request, stream) as m:
+            # Canvas auf 3 Kanäle normalisieren (falls XRGB8888 geliefert wird)
+            canvas = m.array if (m.array.ndim == 3 and m.array.shape[2] == 3) else m.array[:, :, :3]
+
             for det in self.last_detections:
                 try:
                     x, y, w, h = map(int, det.box)
-                    h_max, w_max = m.array.shape[:2]
+                    h_max, w_max = canvas.shape[:2]
                     x = max(0, min(x, w_max - 1))
                     y = max(0, min(y, h_max - 1))
                     w = min(w, w_max - x)
@@ -178,23 +184,29 @@ class ObjectDetector:
 
                     if int(det.category) == self.TRAFFIC_LIGHT_CLASS_ID:
                         x, y, w, h = self._shrink_box(x, y, w, h, fx=0.18, fy=0.05, w_max=w_max, h_max=h_max)
-                        roi = m.array[y:y+h, x:x+w]
-                        if roi.size > 0:
-                            phase = self.detect_phase_by_hsv(roi)
+                        roi_rgb = canvas[y:y+h, x:x+w]  # ROI aus RGB-Canvas
+                        if roi_rgb.size > 0:
+                            phase = self.detect_phase_by_hsv(roi_rgb)
                             name = f"{name} ({phase})"
 
                     label = f"{name} ({det.conf:.2f})"
 
                     (tw, th), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
                     tx, ty = x + 5, y + 15
-                    overlay = m.array.copy()
-                    cv2.rectangle(overlay, (tx, ty - th), (tx + tw, ty + baseline), (255, 255, 255), cv2.FILLED)
-                    cv2.addWeighted(overlay, 0.30, m.array, 0.70, 0, m.array)
 
-                    text_color = (0, 0, 255)
-                    box_color = (0, 255, 255) if int(det.category) == self.TRAFFIC_LIGHT_CLASS_ID else (0, 255, 0)
-                    cv2.putText(m.array, label, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 1)
-                    cv2.rectangle(m.array, (x, y), (x + w, y + h), box_color, 2)
+                    # halbtransparenter Text-Hintergrund
+                    overlay = canvas.copy()
+                    cv2.rectangle(overlay, (tx, ty - th), (tx + tw, ty + baseline), (255, 255, 255), cv2.FILLED)
+                    cv2.addWeighted(overlay, 0.30, canvas, 0.70, 0, canvas)
+
+                    text_color = (0, 0, 255)  # Rot (in RGB) -> OpenCV erwartet BGR-Order für Farben bei Zeichnen!
+                    # Achtung: cv2.putText/cv2.rectangle erwarten BGR-Triplets.
+                    # Deshalb unten BGR-Farben benutzen:
+                    text_color_bgr = (0, 0, 255)
+                    box_color_bgr  = (0, 255, 255) if int(det.category) == self.TRAFFIC_LIGHT_CLASS_ID else (0, 255, 0)
+
+                    cv2.putText(canvas, label, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color_bgr, 1)
+                    cv2.rectangle(canvas, (x, y), (x + w, y + h), box_color_bgr, 2)
 
                 except (ValueError, IndexError) as e:
                     print(f"Error processing detection: {e}")

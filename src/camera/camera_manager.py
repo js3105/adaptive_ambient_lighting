@@ -1,7 +1,7 @@
 from picamera2 import Picamera2
 from picamera2.devices import IMX500
 from picamera2.devices.imx500 import NetworkIntrinsics
-from libcamera import controls
+from libcamera import controls, ColorSpace, Transform
 import time, os
 from config.settings import CameraSettings, DetectionSettings
 
@@ -44,27 +44,35 @@ class CameraManager:
         self.intrinsics.update_with_defaults()
 
     def _setup_camera(self):
+        # Kamera an IMX500 binden
         self.picam2 = Picamera2(self.imx500.camera_num)
         fps = self.intrinsics.inference_rate or CameraSettings.FPS
 
-        # 1) Preview-Konfiguration (ohne OpenCV-Show – Preview kommt vom Picamera2-Overlay)
+        # *** WICHTIG: main-Stream auf RGB888 + sRGB setzen ***
+        # Größe nach Bedarf anpassen; 1280x720 ist ein guter Startpunkt.
         config = self.picam2.create_preview_configuration(
+            main={"format": "RGB888", "size": (1280, 720)},
+            lores=None,
+            transform=Transform(vflip=0, hflip=0),
+            colour_space=ColorSpace.Srgb(),
             controls={"FrameRate": fps},
             buffer_count=12
         )
         self.picam2.configure(config)
 
-        # 2) Vorstart-Controls: Spot-Messung + kurze Belichtung bevorzugen (reduziert Überstrahlen)
+        # Vorstart-Controls (deine bestehenden Einstellungen)
         self.picam2.set_controls({
             "AeEnable": True,                                   # Automatik bleibt an
             "AeMeteringMode": controls.AeMeteringModeEnum.Spot, # Ampel als kleine, helle Zone
             "AeExposureMode": controls.AeExposureModeEnum.Short,# bevorzugt kurze Zeiten
             "AeFlickerMode": controls.AeFlickerModeEnum.Auto,   # stabil bei LED-Licht
 
-            # AWB aus: keine Rot→Gelb Drift
+            # AWB aus: keine Rot→Gelb Drift (du fixierst die Gains manuell)
             "AwbEnable": False,
-            "ColourGains": (1.9, 1.5),  # fixierte R/B-Gains -> kannst du feinjustieren
+            "ColourGains": (1.9, 1.5),  # ggf. anpassen
         })
 
-        # 3) Starten
+        # Starten (Preview vom Picamera2-Overlay)
         self.picam2.start(show_preview=True)
+        # optional: kurze Stabilisierung
+        # time.sleep(1.0)
