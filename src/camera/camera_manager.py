@@ -87,7 +87,7 @@ class CameraManager:
         })
 
     # === Optional: zusätzliches software-basiertes Abdunkeln, bevor du Frames nutzt ===
-    def darken_frame_inplace(self, frame, alpha=0.75, beta=0):
+    def darken_frame_inplace(self, frame, alpha=0.9, beta=0):
         """
         Abdunkeln um ~25% per Gain (wirkt auf Anzeige/HSV, NICHT auf IMX500-Inference).
         Nutze das im draw_callback: frame[:] = convertScaleAbs(...)
