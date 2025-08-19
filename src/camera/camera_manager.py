@@ -2,7 +2,7 @@ from picamera2 import Picamera2
 from picamera2.devices import IMX500
 from picamera2.devices.imx500 import NetworkIntrinsics
 from libcamera import controls, ColorSpace, Transform
-import time, os
+import os
 from config.settings import CameraSettings, DetectionSettings
 
 class CameraManager:
@@ -18,10 +18,7 @@ class CameraManager:
 
         self.imx500 = IMX500(model_path)
         self._setup_intrinsics()
-
-        # optional: Fortschrittsbalken beim Laden der Netzwerk-FW
         self.imx500.show_network_fw_progress_bar()
-
         self._setup_camera()
 
         if self.intrinsics.preserve_aspect_ratio:
@@ -30,7 +27,6 @@ class CameraManager:
     def _setup_intrinsics(self):
         self.intrinsics = self.imx500.network_intrinsics or NetworkIntrinsics()
         self.intrinsics.task = "object detection"
-
         self.intrinsics.bbox_normalization = DetectionSettings.BBOX_NORMALIZATION
         self.intrinsics.bbox_order = DetectionSettings.BBOX_ORDER
         self.intrinsics.inference_rate = DetectionSettings.INFERENCE_RATE
@@ -44,14 +40,12 @@ class CameraManager:
         self.intrinsics.update_with_defaults()
 
     def _setup_camera(self):
-        # Kamera an IMX500 binden
         self.picam2 = Picamera2(self.imx500.camera_num)
         fps = self.intrinsics.inference_rate or CameraSettings.FPS
 
-        # *** WICHTIG: main-Stream auf RGB888 + sRGB setzen ***
-        # Größe nach Bedarf anpassen; 1280x720 ist ein guter Startpunkt.
+        # Preview-Stream MUSS für QGlPicamera2 XRGB8888 sein
         config = self.picam2.create_preview_configuration(
-            main={"format": "RGB888", "size": (1280, 720)},
+            main={"format": "XRGB8888", "size": (1280, 720)},
             lores=None,
             transform=Transform(vflip=0, hflip=0),
             colour_space=ColorSpace.Srgb(),
@@ -60,19 +54,13 @@ class CameraManager:
         )
         self.picam2.configure(config)
 
-        # Vorstart-Controls (deine bestehenden Einstellungen)
         self.picam2.set_controls({
-            "AeEnable": True,                                   # Automatik bleibt an
-            "AeMeteringMode": controls.AeMeteringModeEnum.Spot, # Ampel als kleine, helle Zone
-            "AeExposureMode": controls.AeExposureModeEnum.Short,# bevorzugt kurze Zeiten
-            "AeFlickerMode": controls.AeFlickerModeEnum.Auto,   # stabil bei LED-Licht
-
-            # AWB aus: keine Rot→Gelb Drift (du fixierst die Gains manuell)
+            "AeEnable": True,
+            "AeMeteringMode": controls.AeMeteringModeEnum.Spot,
+            "AeExposureMode": controls.AeExposureModeEnum.Short,
+            "AeFlickerMode": controls.AeFlickerModeEnum.Auto,
             "AwbEnable": False,
-            "ColourGains": (1.9, 1.5),  # ggf. anpassen
+            "ColourGains": (1.9, 1.5),
         })
 
-        # Starten (Preview vom Picamera2-Overlay)
         self.picam2.start(show_preview=True)
-        # optional: kurze Stabilisierung
-        # time.sleep(1.0)
