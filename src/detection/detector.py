@@ -62,31 +62,43 @@ class ObjectDetector:
         ]
         return self.last_detections
 
-    # --- RAW-HSV-Farblogik (minimal) ---
+    # --- RAW-HSV mit Drittel-Logik ---
     def detect_phase_by_hsv(self, roi_bgr):
         """
-        Minimal-Variante:
-        - ROI in HSV
-        - feste Masken für Rot/Gelb/Grün
-        - Pixel zählen, größte Farbe gewinnt
+        Minimal-Variante mit Dritteln:
+        - oberes Drittel: nur Rot prüfen
+        - mittleres Drittel: nur Gelb prüfen
+        - unteres Drittel: nur Grün prüfen
+        -> größte Trefferzahl entscheidet
         """
         if roi_bgr is None or roi_bgr.size == 0:
             return "Unklar"
 
+        h, w = roi_bgr.shape[:2]
+        if h < 6:  # sehr kleine ROIs vermeiden
+            return "Unklar"
+
         hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
 
-        # Rot hat zwei Hue-Bereiche
-        mask_red1 = cv2.inRange(hsv, (0,   70, 50), (10, 255, 255))
-        mask_red2 = cv2.inRange(hsv, (170, 70, 50), (180, 255, 255))
-        mask_red  = cv2.bitwise_or(mask_red1, mask_red2)
+        h_third = h // 3
+        top    = hsv[0:h_third, :, :]                  # Rot
+        middle = hsv[h_third:2*h_third, :, :]          # Gelb
+        bottom = hsv[2*h_third:h, :, :]                # Grün
 
-        mask_yellow = cv2.inRange(hsv, (15, 70, 50), (45, 255, 255))
-        mask_green  = cv2.inRange(hsv, (55, 70, 50), (85, 255, 255))
+        # Rot (zweigeteilter Hue-Bereich)
+        r1 = cv2.inRange(top,    (0,   70, 50), (10, 255, 255))
+        r2 = cv2.inRange(top,    (170, 70, 50), (180,255, 255))
+        red_pixels = cv2.countNonZero(cv2.bitwise_or(r1, r2))
 
-        red_pixels    = cv2.countNonZero(mask_red)
-        yellow_pixels = cv2.countNonZero(mask_yellow)
-        green_pixels  = cv2.countNonZero(mask_green)
+        # Gelb
+        y  = cv2.inRange(middle, (15, 70, 50), (35, 255, 255))
+        yellow_pixels = cv2.countNonZero(y)
 
+        # Grün
+        g  = cv2.inRange(bottom, (40, 70, 50), (90, 255, 255))
+        green_pixels = cv2.countNonZero(g)
+
+        # Entscheidung
         max_pixels = max(red_pixels, yellow_pixels, green_pixels)
         if max_pixels == 0:
             return "Unklar"
@@ -97,7 +109,7 @@ class ObjectDetector:
         elif max_pixels == green_pixels:
             return "Gruen"
         return "Unklar"
-    # --- Ende RAW-HSV-Farblogik ---
+    # --- Ende RAW-Drittel-Logik ---
 
     def draw_callback(self, request, stream="main"):
         if not self.last_detections:
@@ -115,7 +127,7 @@ class ObjectDetector:
                     h = min(h, h_max-y)
                     name = labels[int(det.category)] if 0 <= int(det.category) < len(labels) else f"Class {int(det.category)}"
                 
-                    # Für Ampeln: Phasenerkennung durchführen (RAW-HSV)
+                    # Für Ampeln: Phasenerkennung durchführen (Drittel-Logik)
                     if int(det.category) == self.TRAFFIC_LIGHT_CLASS_ID:
                         roi = m.array[y:y+h, x:x+w]
                         if roi.size > 0:
