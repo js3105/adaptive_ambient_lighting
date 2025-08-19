@@ -104,10 +104,23 @@ class ObjectDetector:
         yellow_value = np.average(mask_yellow)
         green_value = np.average(mask_green)
 
+        # Debug output
+        print("\n=== HSV Analysis Debug ===")
+        print(f"ROI Size: {w}x{h}")
+        print(f"Red value: {red_value:.2f}")
+        print(f"Yellow value: {yellow_value:.2f}")
+        print(f"Green value: {green_value:.2f}")
+
         # Adjust scoring with lower threshold
         scores = {"Rot": red_value, "Gelb": yellow_value, "Gruen": green_value}
         winner = max(scores, key=scores.get)
         max_score = scores[winner]
+
+        # Print decision information
+        print(f"Winner: {winner} (score: {max_score:.2f})")
+        print(f"Ratio margin check: {all(max_score > o * RATIO_MARGIN for o in [v for k, v in scores.items() if k != winner])}")
+        print(f"Min score check: {max_score > MIN_SCORE}")
+        print("========================\n")
 
         # Reduced thresholds for better detection
         RATIO_MARGIN = 1.05
