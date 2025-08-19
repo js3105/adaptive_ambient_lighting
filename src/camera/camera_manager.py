@@ -43,44 +43,66 @@ class CameraManager:
 
         self.intrinsics.update_with_defaults()
 
+    # --------- NEU: Helfer für AWB-Lock & Anti-Bloom ----------
+    def _lock_current_awb(self, fallback_gains=(1.8, 1.5)):
+        """
+        Liest aktuelle AWB-Gains und friert sie ein -> verhindert Rot->Gelb Drift.
+        fallback_gains verwendet, falls Metadata keine ColourGains liefert.
+        """
+        gains = fallback_gains
+        try:
+            md = self.picam2.capture_metadata()
+            if md and "ColourGains" in md and md["ColourGains"]:
+                gains = tuple(md["ColourGains"])
+        except Exception:
+            pass
+        self.picam2.set_controls({
+            "AwbEnable": False,
+            "ColourGains": gains,   # (R, B)
+        })
+
+    def _apply_anti_bloom_preset(self, exposure_us=6000, gain=1.0):
+        """
+        Kurze Belichtung + niedriger Gain -> weniger Überstrahlen/Bloom.
+        Passe exposure_us/gain je nach Tageslicht an.
+        """
+        self.picam2.set_controls({
+            "AeEnable": False,                 # AE aus
+            "ExposureTime": int(exposure_us),  # µs: kleiner = dunkler
+            "AnalogueGain": float(gain),
+        })
+    # -----------------------------------------------------------
+
     def _setup_camera(self):
         self.picam2 = Picamera2(self.imx500.camera_num)
         fps = self.intrinsics.inference_rate or CameraSettings.FPS
 
-        # 1) Preview-Konfiguration (ohne OpenCV-Show – Preview kommt vom Picamera2-Overlay)
+        # 1) Preview-Konfiguration
         config = self.picam2.create_preview_configuration(
             controls={"FrameRate": fps},
             buffer_count=12
         )
         self.picam2.configure(config)
 
-        # 2) Vorstart-Controls: Spot-Messung + kurze Belichtung bevorzugen (reduziert Überstrahlen)
+        # 2) Vorstart: Spot-Messung + kurze Belichtung bevorzugen
         self.picam2.set_controls({
             "AeEnable": True,
-            "AeMeteringMode": controls.AeMeteringModeEnum.Spot,        # Ampel als helle Teilfläche
-            "AeExposureMode": controls.AeExposureModeEnum.Short,       # kurze Shutter-Zeiten
-            "AeFlickerMode": controls.AeFlickerModeEnum.Auto,          # stabilisiert unter LED-Licht
+            "AeMeteringMode": controls.AeMeteringModeEnum.Spot,   # kleine helle Fläche (Ampel)
+            "AeExposureMode": controls.AeExposureModeEnum.Short,  # kurze Shutter-Zeiten
+            "AeFlickerMode": controls.AeFlickerModeEnum.Auto,     # stabil unter LED-PWM
+            "AwbEnable": True,                                    # kurz an, um sinnvolle Gains zu sammeln
         })
 
         # 3) Starten
         self.picam2.start(show_preview=True)
 
-"""        # 4) Kurz stabilisieren lassen, dann Anti-Bloom-Preset setzen (manuell abdunkeln)
+        # 4) Kurz stabilisieren lassen
         time.sleep(0.6)
-        self.apply_anti_bloom_preset(exposure_us=100000, gain=1.0, awb=False)
 
-    # === Anti-Bloom Preset (manuelle Abdunkelung, wirkt auch fürs IMX500-Inference) ===
-    def apply_anti_bloom_preset(self, *, exposure_us=100000, gain=1.0, awb=False):
+        # 5) AWB „einfrieren“ -> verhindert Gelb-Drift bei Rot
+        self._lock_current_awb(fallback_gains=(1.8, 1.5))  # bei Bedarf anpassen
 
-        self.picam2.set_controls({
-            "AeEnable": False,                 # AE aus -> manuell
-            "ExposureTime": int(exposure_us),  # µs: kleiner = dunkler
-            "AnalogueGain": float(gain),
-            "AwbEnable": bool(awb),
-        })
-
-    # === Optional: zusätzliches software-basiertes Abdunkeln, bevor du Frames nutzt ===
-    def darken_frame_inplace(self, frame, alpha=0.9, beta=0):
-        return cv2.convertScaleAbs(frame, alpha=alpha, beta=beta)
-
-        """
+        # 6) AE aus + kurze Belichtung + niedriger Gain -> weniger Bloom
+        #    Tag: exposure_us ~ 4000–9000, gain ~ 1.0–1.5
+        #    Nacht: exposure_us ~ 8000–14000, gain ~ 1.2–1.8
+        self._apply_anti_bloom_preset(exposure_us=6000, gain=1.0)
