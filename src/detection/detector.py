@@ -62,43 +62,98 @@ class ObjectDetector:
         ]
         return self.last_detections
 
-    # --- RAW-HSV mit Drittel-Logik ---
+    # ------------------ Helper (hell + kreisförmig) ------------------
+    def _bright_mask(self, hsv, s_min=60, v_min=140):
+        """Maske für helle, gesättigte Pixel."""
+        return cv2.inRange(hsv, (0, s_min, v_min), (179, 255, 255))
+
+    def _circle_masks(self, gray, min_radius, max_radius):
+        """
+        Finde Kreise in einem Graubild (Hough) und liefere eine Liste binärer Kreis-Masken.
+        Wenn keine Kreise gefunden werden, leere Liste zurückgeben.
+        """
+        g = cv2.GaussianBlur(gray, (5, 5), 0)
+        h, w = gray.shape[:2]
+        minDist = max(8, int(min(h, w) * 0.25))
+        circles = cv2.HoughCircles(g, cv2.HOUGH_GRADIENT,
+                                   dp=1.2, minDist=minDist,
+                                   param1=80, param2=18,
+                                   minRadius=min_radius, maxRadius=max_radius)
+        masks = []
+        if circles is not None:
+            circles = np.uint16(np.around(circles))
+            for x, y, r in circles[0, :]:
+                m = np.zeros_like(gray, dtype=np.uint8)
+                cv2.circle(m, (int(x), int(y)), int(r), 255, thickness=-1)
+                masks.append(m)
+        return masks
+
+    def _count_color_in_segment(self, seg_bgr, color):
+        """
+        Zähle Pixel einer Farbe ('Rot'|'Gelb'|'Gruen') im Segment:
+        - nur helle Pixel (bright mask)
+        - nur innerhalb erkannter Kreise
+        """
+        if seg_bgr.size == 0:
+            return 0
+
+        hsv = cv2.cvtColor(seg_bgr, cv2.COLOR_BGR2HSV)
+        gray = cv2.cvtColor(seg_bgr, cv2.COLOR_BGR2GRAY)
+
+        # nur helle Pixel betrachten
+        bright = self._bright_mask(hsv)
+
+        # Kreisradien relativ zur Segmentgröße
+        h, w = gray.shape[:2]
+        r_min = max(3, int(0.08 * min(h, w)))
+        r_max = max(r_min + 2, int(0.5 * min(h, w)))
+
+        circle_ms = self._circle_masks(gray, r_min, r_max)
+        if not circle_ms:
+            return 0  # nur kreisförmig auswerten -> keine Kreise => keine Zählung
+
+        # Farbmasken
+        if color == "Rot":
+            m1 = cv2.inRange(hsv, (0,   70, 50), (10, 255, 255))
+            m2 = cv2.inRange(hsv, (170, 70, 50), (180,255, 255))
+            color_mask = cv2.bitwise_or(m1, m2)
+        elif color == "Gelb":
+            color_mask = cv2.inRange(hsv, (18, 70, 50), (32, 255, 255))  # enger für „Gelb-Schimmer“-Resistenz
+        else:  # Gruen
+            color_mask = cv2.inRange(hsv, (40, 70, 50), (90, 255, 255))
+
+        # nur helle + innerhalb Kreis
+        total = 0
+        for cm in circle_ms:
+            inside_circle = cv2.bitwise_and(color_mask, cm)
+            inside_bright = cv2.bitwise_and(inside_circle, bright)
+            total += cv2.countNonZero(inside_bright)
+        return total
+    # -----------------------------------------------------------------
+
+    # --- Erkennung mit Dritteln + hell + Kreis ---
     def detect_phase_by_hsv(self, roi_bgr):
         """
-        Minimal-Variante mit Dritteln:
-        - oberes Drittel: nur Rot prüfen
-        - mittleres Drittel: nur Gelb prüfen
-        - unteres Drittel: nur Grün prüfen
-        -> größte Trefferzahl entscheidet
+        - ROI in drei vertikale Drittel
+        - oben nur Rot, Mitte nur Gelb, unten nur Grün
+        - nur helle Pixel und nur kreisförmige Bereiche werden gezählt
         """
         if roi_bgr is None or roi_bgr.size == 0:
             return "Unklar"
 
         h, w = roi_bgr.shape[:2]
-        if h < 6:  # sehr kleine ROIs vermeiden
+        if h < 6:
             return "Unklar"
 
-        hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
+        h3 = h // 3
+        top_bgr    = roi_bgr[0:h3, :, :]           # Rot
+        middle_bgr = roi_bgr[h3:2*h3, :, :]        # Gelb
+        bottom_bgr = roi_bgr[2*h3:h, :, :]         # Grün
 
-        h_third = h // 3
-        top    = hsv[0:h_third, :, :]                  # Rot
-        middle = hsv[h_third:2*h_third, :, :]          # Gelb
-        bottom = hsv[2*h_third:h, :, :]                # Grün
+        red_pixels    = self._count_color_in_segment(top_bgr, "Rot")
+        yellow_pixels = self._count_color_in_segment(middle_bgr, "Gelb")
+        green_pixels  = self._count_color_in_segment(bottom_bgr, "Gruen")
 
-        # Rot (zweigeteilter Hue-Bereich)
-        r1 = cv2.inRange(top,    (0,   70, 50), (10, 255, 255))
-        r2 = cv2.inRange(top,    (170, 70, 50), (180,255, 255))
-        red_pixels = cv2.countNonZero(cv2.bitwise_or(r1, r2))
-
-        # Gelb
-        y  = cv2.inRange(middle, (15, 70, 50), (35, 255, 255))
-        yellow_pixels = cv2.countNonZero(y)
-
-        # Grün
-        g  = cv2.inRange(bottom, (40, 70, 50), (90, 255, 255))
-        green_pixels = cv2.countNonZero(g)
-
-        # Entscheidung
         max_pixels = max(red_pixels, yellow_pixels, green_pixels)
         if max_pixels == 0:
             return "Unklar"
@@ -109,7 +164,7 @@ class ObjectDetector:
         elif max_pixels == green_pixels:
             return "Gruen"
         return "Unklar"
-    # --- Ende RAW-Drittel-Logik ---
+    # --- Ende ---
 
     def draw_callback(self, request, stream="main"):
         if not self.last_detections:
@@ -127,7 +182,7 @@ class ObjectDetector:
                     h = min(h, h_max-y)
                     name = labels[int(det.category)] if 0 <= int(det.category) < len(labels) else f"Class {int(det.category)}"
                 
-                    # Für Ampeln: Phasenerkennung durchführen (Drittel-Logik)
+                    # Für Ampeln: Phasenerkennung durchführen
                     if int(det.category) == self.TRAFFIC_LIGHT_CLASS_ID:
                         roi = m.array[y:y+h, x:x+w]
                         if roi.size > 0:
@@ -145,7 +200,7 @@ class ObjectDetector:
 
                     # Text und Rahmen zeichnen
                     text_color = (0, 0, 255)
-                    box_color = (0, 255, 255) if int(det.category) == self.TRAFFIC_LIGHT_CLASS_ID else (0, 255, 0)  # 3-kanalig
+                    box_color = (0, 255, 255) if int(det.category) == self.TRAFFIC_LIGHT_CLASS_ID else (0, 255, 0)
                     cv2.putText(m.array, label, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 1)
                     cv2.rectangle(m.array, (x, y), (x + w, y + h), box_color, 2)
 
