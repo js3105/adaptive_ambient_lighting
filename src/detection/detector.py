@@ -128,22 +128,26 @@ class ObjectDetector:
                     x, y, w, h = map(int, det.box)
                     # Ensure coordinates are within array bounds
                     h_max, w_max = m.array.shape[:2]
-                    x = max(0, min(x, w_max-1))
-                    y = max(0, min(y, h_max-1))
-                    w = min(w, w_max-x)
-                    h = min(h, h_max-y)
+                    x = max(0, min(x, w_max - 1))
+                    y = max(0, min(y, h_max - 1))
+                    w = min(w, w_max - x)
+                    h = min(h, h_max - y)
+
+                    # Basisname
                     name = labels[int(det.category)] if 0 <= int(det.category) < len(labels) else f"Class {int(det.category)}"
-                
-                    # Für Ampeln: Phasenerkennung durchführen (RAW-HSV)
+
+                    # Für Ampeln: Box schrumpfen + Phase bestimmen
                     if int(det.category) == self.TRAFFIC_LIGHT_CLASS_ID:
                         # Box innen verkleinern (z. B. 12% links/rechts, 18% oben/unten)
-                        x, y, w, h = self._shrink_box(x, y, w, h, fx=0.12, fy=0.18,
-                                                       w_max=w_max, h_max=h_max)
+                        x, y, w, h = self._shrink_box(x, y, w, h, fx=0.12, fy=0.18, w_max=w_max, h_max=h_max)
 
                         roi = m.array[y:y+h, x:x+w]
                         if roi.size > 0:
                             phase = self.detect_phase_by_hsv(roi)
                             name = f"{name} ({phase})"
+
+                    # >>> label VOR erster Verwendung definieren <<<
+                    label = f"{name} ({det.conf:.2f})"
 
                     # Text-Hintergrund halbtransparent
                     (tw, th), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
@@ -154,7 +158,7 @@ class ObjectDetector:
 
                     # Text und Rahmen zeichnen
                     text_color = (0, 0, 255)
-                    box_color = (0, 255, 255) if int(det.category) == self.TRAFFIC_LIGHT_CLASS_ID else (0, 255, 0)  # 3-kanalig
+                    box_color = (0, 255, 255) if int(det.category) == self.TRAFFIC_LIGHT_CLASS_ID else (0, 255, 0)
                     cv2.putText(m.array, label, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 1)
                     cv2.rectangle(m.array, (x, y), (x + w, y + h), box_color, 2)
 
