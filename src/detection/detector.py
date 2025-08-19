@@ -61,54 +61,32 @@ class ObjectDetector:
             if float(score) > threshold
         ]
         return self.last_detections
-    
-    def _bright_mask(self, hsv, s_min=200, v_min=200):
-        """Maske für helle, gesättigte Pixel (Hue egal)."""
-        return cv2.inRange(hsv, (0, s_min, v_min), (179, 255, 255))
 
-    # --- RAW-HSV mit Drittel-Logik ---
+    # --- RAW-HSV-Farblogik (minimal) ---
     def detect_phase_by_hsv(self, roi_bgr):
         """
-        Drittel-Logik + nur helle/kräftige Pixel:
-        - oben: Rot
-        - mitte: Gelb
-        - unten: Grün
-        - Zählung nur dort, wo S>=s_min und V>=v_min.
+        Minimal-Variante:
+        - ROI in HSV
+        - feste Masken für Rot/Gelb/Grün
+        - Pixel zählen, größte Farbe gewinnt
         """
         if roi_bgr is None or roi_bgr.size == 0:
             return "Unklar"
 
-        h, w = roi_bgr.shape[:2]
-        if h < 1:
-            return "Unklar"
-
         hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
-        h_third = h // 3
 
-        top    = hsv[0:h_third, :, :]           # Rot
-        middle = hsv[h_third:2*h_third, :, :]   # Gelb
-        bottom = hsv[2*h_third:h, :, :]         # Grün
+        # Rot hat zwei Hue-Bereiche
+        mask_red1 = cv2.inRange(hsv, (0,   150, 100), (25, 255, 255))
+        mask_red2 = cv2.inRange(hsv, (330, 150, 100), (360, 255, 255))
+        mask_red  = cv2.bitwise_or(mask_red1, mask_red2)
 
-        # nur helle/kräftige Pixel pro Segment
-        top_bright    = self._bright_mask(top,    s_min=200, v_min=200)
-        middle_bright = self._bright_mask(middle, s_min=200, v_min=200)
-        bottom_bright = self._bright_mask(bottom, s_min=200, v_min=200)
+        mask_yellow = cv2.inRange(hsv, (35, 150, 100), (85, 255, 255))
+        mask_green  = cv2.inRange(hsv, (95, 150, 100), (145, 255, 255))
 
-        # Rot (zweigeteilt) im oberen Drittel, nur auf bright
-        r1 = cv2.inRange(top,    (0,   70, 50), (15, 255, 255))
-        r2 = cv2.inRange(top,    (160, 70, 50), (180,255, 255))
-        red_mask = cv2.bitwise_or(r1, r2)
-        red_pixels = cv2.countNonZero(cv2.bitwise_and(red_mask, top_bright))
+        red_pixels    = cv2.countNonZero(mask_red)
+        yellow_pixels = cv2.countNonZero(mask_yellow)
+        green_pixels  = cv2.countNonZero(mask_green)
 
-        # Gelb im mittleren Drittel, nur auf bright
-        y_mask = cv2.inRange(middle, (20, 70, 50), (30, 255, 255))
-        yellow_pixels = cv2.countNonZero(cv2.bitwise_and(y_mask, middle_bright))
-
-        # Grün im unteren Drittel, nur auf bright
-        g_mask = cv2.inRange(bottom, (55, 70, 50), (75, 255, 255))
-        green_pixels = cv2.countNonZero(cv2.bitwise_and(g_mask, bottom_bright))
-
-        # Entscheidung
         max_pixels = max(red_pixels, yellow_pixels, green_pixels)
         if max_pixels == 0:
             return "Unklar"
@@ -119,7 +97,7 @@ class ObjectDetector:
         elif max_pixels == green_pixels:
             return "Gruen"
         return "Unklar"
-    # --- Ende RAW-Drittel-Logik ---
+    # --- Ende RAW-HSV-Farblogik ---
 
     def draw_callback(self, request, stream="main"):
         if not self.last_detections:
@@ -137,17 +115,9 @@ class ObjectDetector:
                     h = min(h, h_max-y)
                     name = labels[int(det.category)] if 0 <= int(det.category) < len(labels) else f"Class {int(det.category)}"
                 
-                    # Für Ampeln: Phasenerkennung durchführen (Drittel-Logik)
+                    # Für Ampeln: Phasenerkennung durchführen (RAW-HSV)
                     if int(det.category) == self.TRAFFIC_LIGHT_CLASS_ID:
                         roi = m.array[y:y+h, x:x+w]
-
-                        # ROI innen etwas verkleinern (z. B. 10 % an allen Seiten abschneiden)
-                        shrink = 0.3
-                        h_roi, w_roi = roi.shape[:2]
-                        dx = int(w_roi * shrink)
-                        dy = int(h_roi * shrink)
-                        roi = roi[dy:h_roi-dy, dx:w_roi-dx]
-
                         if roi.size > 0:
                             phase = self.detect_phase_by_hsv(roi)
                             name = f"{name} ({phase})"
