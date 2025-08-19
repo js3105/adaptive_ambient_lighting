@@ -62,7 +62,7 @@ class ObjectDetector:
         ]
         return self.last_detections
     
-    def _bright_mask(self, hsv, s_min=60, v_min=140):
+    def _bright_mask(self, hsv, s_min=200, v_min=200):
         """Maske für helle, gesättigte Pixel (Hue egal)."""
         return cv2.inRange(hsv, (0, s_min, v_min), (179, 255, 255))
 
@@ -90,9 +90,9 @@ class ObjectDetector:
         bottom = hsv[2*h_third:h, :, :]         # Grün
 
         # nur helle/kräftige Pixel pro Segment
-        top_bright    = self._bright_mask(top,    s_min=60, v_min=140)
-        middle_bright = self._bright_mask(middle, s_min=60, v_min=140)
-        bottom_bright = self._bright_mask(bottom, s_min=60, v_min=140)
+        top_bright    = self._bright_mask(top,    s_min=200, v_min=200)
+        middle_bright = self._bright_mask(middle, s_min=200, v_min=200)
+        bottom_bright = self._bright_mask(bottom, s_min=200, v_min=200)
 
         # Rot (zweigeteilt) im oberen Drittel, nur auf bright
         r1 = cv2.inRange(top,    (0,   70, 50), (15, 255, 255))
