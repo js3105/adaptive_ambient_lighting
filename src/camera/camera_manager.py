@@ -66,30 +66,5 @@ class CameraManager:
         self.picam2.start(show_preview=True)
 
         # 4) Kurz stabilisieren lassen, dann Anti-Bloom-Preset setzen (manuell abdunkeln)
-        time.sleep(0.6)
-        self.apply_anti_bloom_preset(exposure_us=14000, gain=1.0, awb=False)
-
-    # === Anti-Bloom Preset (manuelle Abdunkelung, wirkt auch fürs IMX500-Inference) ===
-    def apply_anti_bloom_preset(self, *, exposure_us=14000, gain=1.0, awb=False):
-        """
-        Setzt die Kamera bewusst dunkler:
-        - kleine ExposureTime (µs) & niedriger Gain -> weniger Bloom/Glare
-        - AWB optional aus (stabilere Farben/Hue)
-        Anpassbar je nach Tageslicht/Nacht:
-            Tag:    exposure_us ~ 4000–9000, gain 1.0–1.5
-            Abend:  exposure_us ~ 8000–14000, gain 1.2–1.8
-        """
-        self.picam2.set_controls({
-            "AeEnable": False,                 # AE aus -> manuell
-            "ExposureTime": int(exposure_us),  # µs: kleiner = dunkler
-            "AnalogueGain": float(gain),
-            "AwbEnable": bool(awb),
-        })
-
-    # === Optional: zusätzliches software-basiertes Abdunkeln, bevor du Frames nutzt ===
-    def darken_frame_inplace(self, frame, alpha=0.9, beta=0):
-        """
-        Abdunkeln um ~25% per Gain (wirkt auf Anzeige/HSV, NICHT auf IMX500-Inference).
-        Nutze das im draw_callback: frame[:] = convertScaleAbs(...)
-        """
-        return cv2.convertScaleAbs(frame, alpha=alpha, beta=beta)
+        #time.sleep(0.6)
+        #self.apply_anti_bloom_preset(exposure_us=14000, gain=1.0, awb=False)
