@@ -61,42 +61,52 @@ class ObjectDetector:
             if float(score) > threshold
         ]
         return self.last_detections
+    
+    def _bright_mask(self, hsv, s_min=60, v_min=140):
+        """Maske für helle, gesättigte Pixel (Hue egal)."""
+        return cv2.inRange(hsv, (0, s_min, v_min), (179, 255, 255))
 
     # --- RAW-HSV mit Drittel-Logik ---
     def detect_phase_by_hsv(self, roi_bgr):
         """
-        Minimal-Variante mit Dritteln:
-        - oberes Drittel: nur Rot prüfen
-        - mittleres Drittel: nur Gelb prüfen
-        - unteres Drittel: nur Grün prüfen
-        -> größte Trefferzahl entscheidet
+        Drittel-Logik + nur helle/kräftige Pixel:
+        - oben: Rot
+        - mitte: Gelb
+        - unten: Grün
+        - Zählung nur dort, wo S>=s_min und V>=v_min.
         """
         if roi_bgr is None or roi_bgr.size == 0:
             return "Unklar"
 
         h, w = roi_bgr.shape[:2]
-        if h < 6:  # sehr kleine ROIs vermeiden
+        if h < 6:
             return "Unklar"
 
         hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
-
         h_third = h // 3
-        top    = hsv[0:h_third, :, :]                  # Rot
-        middle = hsv[h_third:2*h_third, :, :]          # Gelb
-        bottom = hsv[2*h_third:h, :, :]                # Grün
 
-        # Rot (zweigeteilter Hue-Bereich)
+        top    = hsv[0:h_third, :, :]           # Rot
+        middle = hsv[h_third:2*h_third, :, :]   # Gelb
+        bottom = hsv[2*h_third:h, :, :]         # Grün
+
+        # nur helle/kräftige Pixel pro Segment
+        top_bright    = self._bright_mask(top,    s_min=60, v_min=140)
+        middle_bright = self._bright_mask(middle, s_min=60, v_min=140)
+        bottom_bright = self._bright_mask(bottom, s_min=60, v_min=140)
+
+        # Rot (zweigeteilt) im oberen Drittel, nur auf bright
         r1 = cv2.inRange(top,    (0,   70, 50), (15, 255, 255))
         r2 = cv2.inRange(top,    (160, 70, 50), (180,255, 255))
-        red_pixels = cv2.countNonZero(cv2.bitwise_or(r1, r2))
+        red_mask = cv2.bitwise_or(r1, r2)
+        red_pixels = cv2.countNonZero(cv2.bitwise_and(red_mask, top_bright))
 
-        # Gelb
-        y  = cv2.inRange(middle, (20, 70, 50), (30, 255, 255))
-        yellow_pixels = cv2.countNonZero(y)
+        # Gelb im mittleren Drittel, nur auf bright
+        y_mask = cv2.inRange(middle, (20, 70, 50), (30, 255, 255))
+        yellow_pixels = cv2.countNonZero(cv2.bitwise_and(y_mask, middle_bright))
 
-        # Grün
-        g  = cv2.inRange(bottom, (55, 70, 50), (75, 255, 255))
-        green_pixels = cv2.countNonZero(g)
+        # Grün im unteren Drittel, nur auf bright
+        g_mask = cv2.inRange(bottom, (55, 70, 50), (75, 255, 255))
+        green_pixels = cv2.countNonZero(cv2.bitwise_and(g_mask, bottom_bright))
 
         # Entscheidung
         max_pixels = max(red_pixels, yellow_pixels, green_pixels)
