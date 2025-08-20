@@ -1,7 +1,8 @@
-from camera.camera_manager import CameraManager
-from detection.detector import ObjectDetector
-from led.led import WS2812LedSink
+from .camera.camera_manager import CameraManager
+from .detection.detector import ObjectDetector
+from .led.led import WS2812LedSink
 import time
+
 
 def main():
     camera = None
@@ -36,6 +37,7 @@ def main():
         if led_sink:
             led_sink.reset()
         print("Camera stopped")
+
 
 if __name__ == "__main__":
     main()
