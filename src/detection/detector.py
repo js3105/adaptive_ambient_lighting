@@ -108,7 +108,9 @@ class ObjectDetector:
             frame_phase_for_led = None
             if chosen and all_lights:
                 det, x, y, w, h, cx, cy, lane_key, stable_ok = chosen
-                matched_light = self._arrows.match_light_to_lane(all_lights, lane_key, w_max)
+                matched_light = self._arrows.match_light_side_biased(
+                    all_lights, lane_key, w_max, h_max, arrow_cx=cx, arrow_cy=cy
+                )
 
                 if stable_ok and matched_light is not None:
                     lx, ly, lw, lh = map(int, matched_light.box)
