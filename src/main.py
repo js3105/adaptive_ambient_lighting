@@ -1,6 +1,6 @@
 from camera.camera_manager import CameraManager
 from detection.detector import ObjectDetector
-from io.led import WS2812LedSink
+from led.led import WS2812LedSink
 import time
 
 def main():
