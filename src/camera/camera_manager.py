@@ -59,7 +59,7 @@ class CameraManager:
             "AeMeteringMode": controls.AeMeteringModeEnum.Spot,
             "AeExposureMode": controls.AeExposureModeEnum.Short,
             "AeFlickerMode": controls.AeFlickerModeEnum.Auto,
-            "AwbEnable": False,
+            "AwbEnable": True,
             "ColourGains": (1.9, 1.5),
         })
 
