@@ -3,7 +3,7 @@ from picamera2.devices import IMX500
 from picamera2.devices.imx500 import NetworkIntrinsics
 from libcamera import controls, ColorSpace, Transform
 import os
-from config.settings import CameraSettings, DetectionSettings
+from ..config.settings import CameraSettings, DetectionSettings
 
 class CameraManager:
     def __init__(self):
