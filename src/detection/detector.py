@@ -245,6 +245,7 @@ class ObjectDetector:
                 # === 5) Fall B: kein stabiler Pfeil/Match -> Sticky nutzen (falls aktiv)
                 try:
                     if (matched_light is None) and self._sticky_active():
+                        # 5.1 Mit aktuellen Detections reattachen (IoU), falls möglich
                         if all_lights and self._sticky_box is not None and self._sticky_ttl_frames > 0:
                             cand, iou = _best_iou_light(self._sticky_box, all_lights)
                             if cand is not None and iou >= self.STICKY_IOU_THRESH:
@@ -269,11 +270,21 @@ class ObjectDetector:
                                 # Optional: LED in Sticky-Phase updaten
                                 frame_phase_for_led = phase
 
-                        # Falls kein Reattach möglich, halten wir logisch weiter (Box aus Cache)
+                        # 5.2 KEIN Reattach möglich → trotzdem Phase aus gecachter Sticky-Box messen!
                         if matched_light is None and self._sticky_box is not None:
                             used_sticky = True
                             lx, ly, lw, lh = self._sticky_box
-                            # Keine neue Phase messbar → Anzeige später aus _sticky_last_phase
+                            # Box an Bildränder clampen
+                            lx = max(0, min(lx, w_max - 2)); ly = max(0, min(ly, h_max - 2))
+                            lw = max(2, min(lw, w_max - lx)); lh = max(2, min(lh, h_max - ly))
+                            sx, sy, sw, sh = self._tl.shrink_box(lx, ly, lw, lh, fx=0.18, fy=0.05, w_max=w_max, h_max=h_max)
+                            if sw > 0 and sh > 0:
+                                roi_rgb = proc_rgb_full[sy:sy+sh, sx:sx+sw]
+                                phase = self._tl.phase_from_roi(roi_rgb)
+                                self._sticky_last_phase = phase
+                                self._sticky_on_phase(phase)          # Grün? → Release-Timer
+                                frame_phase_for_led = phase           # LED auch im Sticky-Only-Modus updaten
+                            # else: ROI leer → keine neue Phase, alte behalten
                 except Exception as e:
                     logging.warning(f"sticky handling failed: {e}")
 
@@ -344,7 +355,7 @@ class ObjectDetector:
                 # === 8) Overlay nur einmal einblenden
                 cv2.addWeighted(overlay, 0.30, draw_surface, 0.70, 0, draw_surface)
 
-                # === 9) LED-Schnittstelle am Frame-Ende aufrufen (nur wenn wir eine frische Phase haben)
+                # === 9) LED-Schnittstelle am Frame-Ende aufrufen (auch im Sticky-Only-Modus)
                 if self._led_sink is not None and frame_phase_for_led is not None:
                     try:
                         self._led_sink.apply_phase(frame_phase_for_led)
