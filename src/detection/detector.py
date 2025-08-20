@@ -11,6 +11,29 @@ from .common import pick_label
 from .overlay import draw_label, draw_box
 from .arrows import ArrowSelector, CLASS_ARROW_LEFT, CLASS_ARROW_RIGHT, CLASS_ARROW_STRAIGHT
 
+def _iou_xywh(a, b):
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    ax2, ay2 = ax + aw, ay + ah
+    bx2, by2 = bx + bw, by + bh
+    inter_w = max(0, min(ax2, bx2) - max(ax, bx))
+    inter_h = max(0, min(ay2, by2) - max(ay, by))
+    inter = inter_w * inter_h
+    if inter == 0:
+        return 0.0
+    area_a = aw * ah
+    area_b = bw * bh
+    return inter / float(area_a + area_b - inter)
+
+def _best_iou_light(sticky_box, light_dets):
+    best, best_iou = None, 0.0
+    for det in light_dets:
+        x, y, w, h = map(int, det.box)
+        iou = _iou_xywh(sticky_box, (x, y, w, h))
+        if iou > best_iou:
+            best, best_iou = det, iou
+    return best, best_iou
+
 # Klassen-IDs (euer Datensatz)
 CLASS_TL = 0          # ampel
 # 1: pfeil_gerade, 2: pfeil_links, 3: pfeil_rechts (siehe arrows.py)
@@ -53,29 +76,6 @@ class ObjectDetector:
 
     def _labels(self):
         return self.labels
-    
-    def _iou_xywh(a, b):
-        ax, ay, aw, ah = a
-        bx, by, bw, bh = b
-        ax2, ay2 = ax + aw, ay + ah
-        bx2, by2 = bx + bw, by + bh
-        inter_w = max(0, min(ax2, bx2) - max(ax, bx))
-        inter_h = max(0, min(ay2, by2) - max(ay, by))
-        inter = inter_w * inter_h
-        if inter == 0:
-            return 0.0
-        area_a = aw * ah
-        area_b = bw * bh
-        return inter / float(area_a + area_b - inter)
-
-    def _best_iou_light(sticky_box, light_dets):
-        best, best_iou = None, 0.0
-        for det in light_dets:
-            x, y, w, h = map(int, det.box)
-            iou = _iou_xywh(sticky_box, (x, y, w, h))
-            if iou > best_iou:
-                best, best_iou = det, iou
-        return best, best_iou
 
     # ---------- NN-Postprocessing ----------
     def parse_detections(self, metadata):
