@@ -9,7 +9,7 @@ class LedPhaseSink:
     def __init__(self):
         self._last_phase: Optional[str] = None
 
-    def apply_phase(self, phase: str) -> None:
+    def GPIO(self, phase: str) -> None:
         """
         phase: "Rot" | "Gelb" | "Gruen" | "Unklar"
         Default: no-op (kann durch Subklasse/DI ersetzt werden).
