@@ -9,7 +9,7 @@ class LedPhaseSink:
     def __init__(self):
         self._last_phase: Optional[str] = None
 
-    def GPIO(self, phase: str) -> None:
+    def apply_phase(self, phase: str) -> None:
         """
         phase: "Rot" | "Gelb" | "Gruen" | "Unklar"
         Default: no-op (kann durch Subklasse/DI ersetzt werden).
@@ -59,7 +59,7 @@ class WS2812LedSink(LedPhaseSink):
         except Exception as e:
             logging.warning(f"Failed to initialize WS2812 LED: {e}")
     
-    def GPIO(self, phase: str) -> None:
+    def apply_phase(self, phase: str) -> None:
         """
         Apply traffic light phase color to WS2812 LED.
         """
