@@ -20,7 +20,7 @@ class WS2812LedSink(LedPhaseSink):
     """
     WS2812 LED implementation for traffic light colors.
     """
-    def __init__(self, led_pin=18, led_count=14, led_freq_hz=800000, led_dma=10, led_brightness=64):
+    def __init__(self, led_pin=18, led_count=14, led_freq_hz=800000, led_dma=10, led_brightness=32):
         super().__init__()
         self.led_pin = led_pin
         self.led_count = led_count
