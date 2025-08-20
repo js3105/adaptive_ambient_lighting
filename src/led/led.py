@@ -59,7 +59,7 @@ class WS2812LedSink(LedPhaseSink):
         except Exception as e:
             logging.warning(f"Failed to initialize WS2812 LED: {e}")
     
-    def apply_phase(self, phase: str) -> None:
+    def GPIO(self, phase: str) -> None:
         """
         Apply traffic light phase color to WS2812 LED.
         """
@@ -79,7 +79,8 @@ class WS2812LedSink(LedPhaseSink):
             # Convert RGB to WS2812 color format
             import rpi_ws281x
             # WS2812 typically uses GRB format: Green, Red, Blue
-            ws_color = rpi_ws281x.Color(color[1], color[0], color[2])  # GRB format
+            r, g, b = color
+            ws_color = rpi_ws281x.Color(g, r, b)  # GRB format
             
             # Set all LEDs to the same color
             for i in range(self.led_count):
