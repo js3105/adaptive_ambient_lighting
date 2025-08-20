@@ -13,7 +13,7 @@ def main():
         print("Preview running. Press Ctrl+C to exit.")
 
         # Initialize WS2812 LED on PIN18
-        led_sink = WS2812LedSink(led_pin=18, led_count=1)
+        led_sink = WS2812LedSink(led_pin=18, led_count=14)
         
         detector = ObjectDetector(camera.imx500, camera.intrinsics, camera.picam2, led_sink=led_sink)
 
