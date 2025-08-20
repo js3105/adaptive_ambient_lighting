@@ -58,8 +58,8 @@ class ObjectDetector:
     # Sticky „bis Grün + 2s“
     STICKY_HOLD_GREEN = 2.0   # Sekunden nach erster Grün-Sichtung
     # IoU-Reattach (wenn Detection kurz weg ist)
-    STICKY_TTL_FRAMES = 30
-    STICKY_IOU_THRESH = 0.15
+    STICKY_TTL_FRAMES = 120
+    STICKY_IOU_THRESH = 0.05
 
     def __init__(self, imx500: IMX500, intrinsics, picam2, led_sink=None):
         self.imx500 = imx500
