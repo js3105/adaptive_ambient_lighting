@@ -11,7 +11,12 @@ class CameraManager:
         self.intrinsics = None
         self.picam2 = None
 
-    def setup(self):
+    def setup(self, use_preview: bool = True):
+        """
+        Initialisiert Kamera + IMX500.
+        use_preview=True  -> normales Fenster/Overlay (QGlPicamera2)
+        use_preview=False -> Headless-Betrieb (nur LEDs, kein Fenster)
+        """
         model_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "models", "my_model.rpk")
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Model file not found at: {model_path}")
@@ -19,7 +24,7 @@ class CameraManager:
         self.imx500 = IMX500(model_path)
         self._setup_intrinsics()
         self.imx500.show_network_fw_progress_bar()
-        self._setup_camera()
+        self._setup_camera(use_preview=use_preview)
 
         if self.intrinsics.preserve_aspect_ratio:
             self.imx500.set_auto_aspect_ratio()
@@ -39,11 +44,12 @@ class CameraManager:
 
         self.intrinsics.update_with_defaults()
 
-    def _setup_camera(self):
+    def _setup_camera(self, use_preview: bool):
         self.picam2 = Picamera2(self.imx500.camera_num)
         fps = self.intrinsics.inference_rate or CameraSettings.FPS
 
-        # Preview-Stream MUSS für QGlPicamera2 XRGB8888 sein
+        # Wichtig: Für QGl-Preview muss das Format XRGB8888 sein.
+        # Wir verwenden es auch im Headless-Modus – ist robust und kompatibel mit dem bestehenden Detector.
         config = self.picam2.create_preview_configuration(
             main={"format": "XRGB8888", "size": (1280, 720)},
             lores=None,
@@ -63,4 +69,5 @@ class CameraManager:
             "ColourGains": (1.9, 1.5),
         })
 
-        self.picam2.start(show_preview=True)
+        # Headless: einfach ohne Fenster starten
+        self.picam2.start(show_preview=use_preview)
