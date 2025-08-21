@@ -74,16 +74,11 @@ class ObjectDetector:
             s_min=60, v_min=60, use_r_dom=True, r_margin=20
         )
 
-        # LED-Schnittstelle (optional; Objekt mit .apply_phase(str))
+        # LED-Schnittstelle (optional; Objekt mit .apply_phase(str) und .set_ambient())
         self._led_sink = led_sink
 
-        # Pfeil-/Spur-Logik (Side-Bias ist in ArrowSelector implementiert)
+        # Pfeil-/Spur-Logik
         self._arrows = ArrowSelector()
-        # Optionales Tuning:
-        # self._arrows.side_ref_mode = "blend"  # "arrow" | "lane" | "blend"
-        # self._arrows.side_ref_alpha = 0.6
-        # self._arrows.side_tol = 0.05
-        # self._arrows.vert_margin_px = 8
 
         # Sticky-State (ereignisgetrieben: „halten bis Grün“)
         self._sticky_mode = False            # True = Ampel wird gehalten
@@ -131,14 +126,12 @@ class ObjectDetector:
         """Bei erster Grün-Sichtung Release-Timer starten/verlängern."""
         if not phase:
             return
-        p = str(phase).lower()
+        p = str(phase)
         now = time.time()
-        if p.startswith("gruen"):
-            # Falls noch kein Release-Timer aktiv, setze ihn
+        if p == TrafficLightPhase.GRUEN:
             if self._sticky_release_ts <= 0.0:
                 self._sticky_release_ts = now + self.STICKY_HOLD_GREEN
             else:
-                # ggf. verlängern, falls knapp
                 self._sticky_release_ts = max(self._sticky_release_ts, now + self.STICKY_HOLD_GREEN)
 
     def _sticky_active(self):
@@ -153,23 +146,20 @@ class ObjectDetector:
         """Sticky deaktivieren, wenn der Release-Timer abgelaufen ist."""
         if self._sticky_mode and self._sticky_release_ts > 0.0 and time.time() >= self._sticky_release_ts:
             self._sticky_mode = False
-            # State bewusst nicht komplett gelöscht – kann für UI/Debug weiter genutzt werden
 
     # ---------- Hauptanzeige & Logik ----------
     def draw_callback(self, request, stream="main"):
-        if not self.last_detections:
-            return
-
-        labels = self._labels()
         try:
             with MappedArray(request, stream) as m:
                 draw_surface = m.array
+                if draw_surface.ndim != 3:
+                    return
                 h_max, w_max = draw_surface.shape[:2]
 
                 # Farbansicht nur einmal berechnen
-                if draw_surface.ndim == 3 and draw_surface.shape[2] == 4:
+                if draw_surface.shape[2] == 4:
                     proc_rgb_full = cv2.cvtColor(draw_surface, cv2.COLOR_BGRA2RGB)
-                elif draw_surface.ndim == 3 and draw_surface.shape[2] == 3:
+                elif draw_surface.shape[2] == 3:
                     proc_rgb_full = draw_surface[:, :, ::-1]
                 else:
                     return
@@ -180,7 +170,7 @@ class ObjectDetector:
                 roi_poly = self._arrows.ego_lane_roi_polygon(draw_surface.shape)
                 cv2.polylines(overlay, [roi_poly], True, (0, 255, 255), 2)
 
-                # === 2) Detections in Pfeile & Ampeln trennen
+                # === 2) Detections trennen
                 all_arrows = []  # (det, x,y,w,h, cx,cy)
                 all_lights = []  # det
                 for det in self.last_detections:
@@ -232,12 +222,14 @@ class ObjectDetector:
                                 phase = TrafficLightPhase.UNKLAR
 
                             if stable_ok:
-                                # LED und Sticky
-                                frame_phase_for_led = phase
-                                self._sticky_start(lane_key, (lx, ly, lw, lh), phase)
-                                self._sticky_on_phase(phase)  # falls schon grün, Release-Timer starten
+                                # *** ARME NUR BEI ROT ODER GELB ***
+                                if phase in (TrafficLightPhase.ROT, TrafficLightPhase.GELB):
+                                    frame_phase_for_led = phase
+                                    self._sticky_start(lane_key, (lx, ly, lw, lh), phase)
+                                # Immer: Grün überwachen, falls schon aktiv
+                                self._sticky_on_phase(phase)
                             else:
-                                # Noch nicht stabil, aber wenn wir bereits Grün sehen, Release-Timer vorbereiten
+                                # Noch nicht stabil: nur Grün-Release vorbereiten
                                 self._sticky_on_phase(phase)
                 except Exception as e:
                     logging.warning(f"matching phase failed: {e}")
@@ -245,7 +237,7 @@ class ObjectDetector:
                 # === 5) Fall B: kein stabiler Pfeil/Match -> Sticky nutzen (falls aktiv)
                 try:
                     if (matched_light is None) and self._sticky_active():
-                        # 5.1 Mit aktuellen Detections reattachen (IoU), falls möglich
+                        # 5.1 Reattach per IoU
                         if all_lights and self._sticky_box is not None and self._sticky_ttl_frames > 0:
                             cand, iou = _best_iou_light(self._sticky_box, all_lights)
                             if cand is not None and iou >= self.STICKY_IOU_THRESH:
@@ -264,17 +256,13 @@ class ObjectDetector:
                                     phase = self._sticky_last_phase or TrafficLightPhase.UNKLAR
 
                                 self._sticky_last_phase = phase
-                                # Falls Grün gesehen, Release-Timer starten/verlängern
                                 self._sticky_on_phase(phase)
-
-                                # Optional: LED in Sticky-Phase updaten
                                 frame_phase_for_led = phase
 
-                        # 5.2 KEIN Reattach möglich → trotzdem Phase aus gecachter Sticky-Box messen!
+                        # 5.2 Kein Reattach → Phase aus gecachter Box
                         if matched_light is None and self._sticky_box is not None:
                             used_sticky = True
                             lx, ly, lw, lh = self._sticky_box
-                            # Box an Bildränder clampen
                             lx = max(0, min(lx, w_max - 2)); ly = max(0, min(ly, h_max - 2))
                             lw = max(2, min(lw, w_max - lx)); lh = max(2, min(lh, h_max - ly))
                             sx, sy, sw, sh = self._tl.shrink_box(lx, ly, lw, lh, fx=0.18, fy=0.05, w_max=w_max, h_max=h_max)
@@ -282,13 +270,13 @@ class ObjectDetector:
                                 roi_rgb = proc_rgb_full[sy:sy+sh, sx:sx+sw]
                                 phase = self._tl.phase_from_roi(roi_rgb)
                                 self._sticky_last_phase = phase
-                                self._sticky_on_phase(phase)          # Grün? → Release-Timer
-                                frame_phase_for_led = phase           # LED auch im Sticky-Only-Modus updaten
-                            # else: ROI leer → keine neue Phase, alte behalten
+                                self._sticky_on_phase(phase)
+                                frame_phase_for_led = phase
                 except Exception as e:
                     logging.warning(f"sticky handling failed: {e}")
 
                 # === 6) Dünne Übersicht: alle Pfeile & Ampeln
+                labels = self._labels()
                 for det, x, y, w, h, cx, cy in all_arrows:
                     try:
                         name = pick_label(labels, det.category)
@@ -315,17 +303,6 @@ class ObjectDetector:
                         badge = f"{pick_label(labels, det.category)} | lane:{lane_key} | conf:{det.conf:.2f}"
                         draw_label(overlay, badge, int(x), max(0, int(y) - 20),
                                    scale=0.6, thickness=2, text_bgr=(0, 120, 0), bg_alpha=1.0)
-
-                        if self._debug:
-                            lane_mid = self._arrows.bucket_mid_for_lane(lane_key)
-                            ref_x_norm = self._arrows._ref_x_norm(lane_mid, cx / float(w_max))
-                            ref_x = int(ref_x_norm * w_max)
-                            cv2.line(overlay, (ref_x, 0), (ref_x, h_max), (255, 255, 255), 1)
-                            draw_label(overlay, "SB ref_x", max(0, ref_x - 20), 5, scale=0.5, thickness=1,
-                                       text_bgr=(255, 255, 255), bg_alpha=1.0)
-
-                        draw_label(overlay, f"stable {self._arrows._stable_counter}/{self._arrows.STABLE_N} (lane {lane_key})",
-                                   10, 10, scale=0.6, thickness=2, text_bgr=(40, 200, 40), bg_alpha=1.0)
                     except Exception:
                         pass
 
@@ -345,27 +322,34 @@ class ObjectDetector:
                     except Exception:
                         pass
                 else:
-                    # Falls keine aktuelle Detection, aber Sticky aktiv und Box bekannt: zeichne Box aus dem Sticky-Cache
                     if self._sticky_active() and self._sticky_box is not None:
                         lx, ly, lw, lh = self._sticky_box
                         draw_box(overlay, lx, ly, lw, lh, (255, 255, 0), thickness=2)
                         draw_label(overlay, f"ampel (sticky only): {self._sticky_last_phase or 'Unklar'}",
                                    lx, max(0, ly - 20), scale=0.6, thickness=2, text_bgr=(0, 180, 180), bg_alpha=1.0)
 
-                # === 8) Overlay nur einmal einblenden
+                # === 8) Overlay einblenden
                 cv2.addWeighted(overlay, 0.30, draw_surface, 0.70, 0, draw_surface)
 
-                # === 9) LED-Schnittstelle am Frame-Ende aufrufen (auch im Sticky-Only-Modus)
-                if self._led_sink is not None and frame_phase_for_led is not None:
-                    try:
-                        self._led_sink.apply_phase(frame_phase_for_led)
-                    except Exception as e:
-                        logging.warning(f"LED sink error: {e}")
+                # === 9) LED steuern
+                if self._led_sink is not None:
+                    if frame_phase_for_led is not None:
+                        # aktive Ampelphase anzeigen
+                        try:
+                            self._led_sink.apply_phase(frame_phase_for_led)
+                        except Exception as e:
+                            logging.warning(f"LED sink error: {e}")
+                    else:
+                        # Keine aktive Phase → Ambient, wenn nicht „sticky aktiv“
+                        if not self._sticky_active():
+                            try:
+                                self._led_sink.set_ambient()
+                            except Exception as e:
+                                logging.warning(f"LED ambient error: {e}")
 
-                # === 10) Sticky ggf. beenden, wenn Release-Zeit erreicht
+                # === 10) Sticky ggf. beenden
                 self._sticky_end_if_due()
 
         except Exception as e:
-            # Harte Absicherung: egal was passiert, der Callback darf nicht crashen.
             logging.error(f"draw_callback error: {e}")
             return

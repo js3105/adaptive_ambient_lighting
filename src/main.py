@@ -13,8 +13,11 @@ def main():
         print("Preview running. Press Ctrl+C to exit.")
 
         # Initialize WS2812 LED on PIN18
-        led_sink = WS2812LedSink(led_pin=18, led_count=14)
-        
+        led_sink = WS2812LedSink(led_pin=18, led_count=14, ambient_color=(1, 187, 242))
+
+        # Ambient-Blau direkt aktivieren
+        led_sink.set_ambient()
+
         detector = ObjectDetector(camera.imx500, camera.intrinsics, camera.picam2, led_sink=led_sink)
 
         # Zeichnen direkt im Preview:
@@ -24,8 +27,7 @@ def main():
         while True:
             metadata = camera.picam2.capture_metadata()
             detector.parse_detections(metadata)
-            # Kleine Pause, um CPU zu schonen (optional)
-            time.sleep(0.001)
+            time.sleep(0.001)  # Schonung
 
     except KeyboardInterrupt:
         print("\nStopping camera...")

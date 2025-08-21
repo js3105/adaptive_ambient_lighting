@@ -18,21 +18,24 @@ class LedPhaseSink:
 
 class WS2812LedSink(LedPhaseSink):
     """
-    WS2812 LED implementation for traffic light colors.
+    WS2812 LED implementation for traffic light colors with ambient mode.
     """
-    def __init__(self, led_pin=18, led_count=14, led_freq_hz=800000, led_dma=10, led_brightness=32):
+    def __init__(self, led_pin=18, led_count=14, led_freq_hz=800000, led_dma=10, led_brightness=32,
+                 ambient_color=(1, 187, 242)):
         super().__init__()
         self.led_pin = led_pin
         self.led_count = led_count
         self.strip = None
         self._initialized = False
+        self.ambient_color = ambient_color
 
         # Traffic light phase colors
         self.phase_colors = {
             "Rot": (255, 0, 0),
             "Gelb": (255, 255, 0),
             "Gruen": (0, 255, 0),
-            "Unklar": (0, 0, 0)
+            "Unklar": (0, 0, 0),
+            "Ambient": ambient_color
         }
 
         try:
@@ -48,6 +51,29 @@ class WS2812LedSink(LedPhaseSink):
         except Exception as e:
             logging.warning(f"Failed to initialize WS2812 LED: {e}")
 
+    def _set_all(self, rgb):
+        """Set all LEDs to one RGB color."""
+        if not self._initialized or self.strip is None:
+            return
+        try:
+            import rpi_ws281x
+            r, g, b = rgb
+            ws_color = rpi_ws281x.Color(r, g, b)  # RGB order
+            for i in range(self.led_count):
+                self.strip.setPixelColor(i, ws_color)
+            self.strip.show()
+        except Exception as e:
+            logging.warning(f"Error setting all LEDs: {e}")
+
+    def set_ambient(self):
+        """Ambient blue when no traffic light is active."""
+        if not self._initialized:
+            print("[LED] Ambient (WS2812 not available)")
+            return
+        self._set_all(self.ambient_color)
+        # kein Phase-State setzen, damit apply_phase() weiterhin triggert
+        print(f"[LED] Set to Ambient: RGB{self.ambient_color}")
+
     def apply_phase(self, phase: str) -> None:
         if phase == self._last_phase:
             return
@@ -62,16 +88,11 @@ class WS2812LedSink(LedPhaseSink):
         try:
             import rpi_ws281x
             r, g, b = color
-            # <<< FIXED: nutze RGB statt GRB, um Rot/Grün nicht zu vertauschen >>>
-            ws_color = rpi_ws281x.Color(r, g, b)
-
-            # <<< FIXED: setze ALLE LEDs >>>
+            ws_color = rpi_ws281x.Color(r, g, b)  # RGB (nicht GRB)
             for i in range(self.led_count):
                 self.strip.setPixelColor(i, ws_color)
-
             self.strip.show()
             print(f"[LED] Set to {phase}: RGB{color}")
-
         except Exception as e:
             logging.warning(f"Error setting LED color: {e}")
 
