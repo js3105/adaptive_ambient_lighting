@@ -61,7 +61,7 @@ class ObjectDetector:
     STICKY_TTL_FRAMES = 820
     STICKY_IOU_THRESH = 0.05
 
-    def __init__(self, imx500: IMX500, intrinsics, picam2, led_sink=None):
+    def __init__(self, imx500: IMX500, intrinsics, picam2, led_sink=None, headless: bool = False):
         self.imx500 = imx500
         self.intrinsics = intrinsics
         self.picam2 = picam2
@@ -89,8 +89,9 @@ class ObjectDetector:
         self._sticky_ttl_frames = 0          # Restversuche IoU-Reattach
         self._sticky_last_seen_ts = 0.0      # wann zuletzt real gesehen/reattached
 
-        # Optionales Debug
+        # Optionales Debug / Headless
         self._debug = False
+        self._headless = headless
 
     # ---------- Public API ----------
     def set_led_sink(self, led_sink):
@@ -164,11 +165,13 @@ class ObjectDetector:
                 else:
                     return
 
-                overlay = draw_surface.copy()
+                # Overlay nur, wenn NICHT headless
+                overlay = None if self._headless else draw_surface.copy()
 
-                # === 1) Ego-Spur-ROI zeichnen
+                # === 1) Ego-Spur-ROI (nur zeichnen, wenn Overlay existiert)
                 roi_poly = self._arrows.ego_lane_roi_polygon(draw_surface.shape)
-                cv2.polylines(overlay, [roi_poly], True, (0, 255, 255), 2)
+                if overlay is not None:
+                    cv2.polylines(overlay, [roi_poly], True, (0, 255, 255), 2)
 
                 # === 2) Detections trennen
                 all_arrows = []  # (det, x,y,w,h, cx,cy)
@@ -264,7 +267,7 @@ class ObjectDetector:
                             used_sticky = True
                             lx, ly, lw, lh = self._sticky_box
                             lx = max(0, min(lx, w_max - 2)); ly = max(0, min(ly, h_max - 2))
-                            lw = max(2, min(lw, w_max - lx)); lh = max(2, min(lh, h_max - ly))
+                            lw = max(2, min(lw, w_max - lx)); lh = max(2, min(h, h_max - ly))
                             sx, sy, sw, sh = self._tl.shrink_box(lx, ly, lw, lh, fx=0.18, fy=0.05, w_max=w_max, h_max=h_max)
                             if sw > 0 and sh > 0:
                                 roi_rgb = proc_rgb_full[sy:sy+sh, sx:sx+sw]
@@ -275,79 +278,77 @@ class ObjectDetector:
                 except Exception as e:
                     logging.warning(f"sticky handling failed: {e}")
 
-                # === 6) Dünne Übersicht: alle Pfeile & Ampeln
-                labels = self._labels()
-                for det, x, y, w, h, cx, cy in all_arrows:
-                    try:
-                        name = pick_label(labels, det.category)
-                        draw_box(overlay, int(x), int(y), int(w), int(h), (180, 180, 180), thickness=1)
-                        draw_label(overlay, f"{name} ({det.conf:.2f})", int(x), int(y),
-                                   scale=0.5, thickness=1, text_bgr=(50, 50, 50), bg_alpha=1.0)
-                    except Exception:
-                        continue
+                # === 6) (Zeichnen nur wenn Overlay existiert)
+                if overlay is not None:
+                    labels = self._labels()
+                    # Pfeile
+                    for det, x, y, w, h, cx, cy in all_arrows:
+                        try:
+                            name = pick_label(labels, det.category)
+                            draw_box(overlay, int(x), int(y), int(w), int(h), (180, 180, 180), thickness=1)
+                            draw_label(overlay, f"{name} ({det.conf:.2f})", int(x), int(y),
+                                       scale=0.5, thickness=1, text_bgr=(50, 50, 50), bg_alpha=1.0)
+                        except Exception:
+                            continue
+                    # Ampeln
+                    for det in all_lights:
+                        try:
+                            lx, ly, lw, lh = map(int, det.box)
+                            draw_box(overlay, lx, ly, lw, lh, (0, 140, 255), thickness=1)
+                            draw_label(overlay, f"{pick_label(labels, det.category)} ({det.conf:.2f})", lx, ly,
+                                       scale=0.5, thickness=1, text_bgr=(0, 90, 180), bg_alpha=1.0)
+                        except Exception:
+                            continue
+                    # Match-Highlight
+                    if chosen:
+                        try:
+                            det, x, y, w, h, cx, cy, lane_key, stable_ok = chosen
+                            draw_box(overlay, int(x), int(y), int(w), int(h), (0, 255, 0), thickness=3)
+                            badge = f"{pick_label(labels, det.category)} | lane:{lane_key} | conf:{det.conf:.2f}"
+                            draw_label(overlay, badge, int(x), max(0, int(y) - 20),
+                                       scale=0.6, thickness=2, text_bgr=(0, 120, 0), bg_alpha=1.0)
+                        except Exception:
+                            pass
+                    # Gematchte Ampel
+                    if matched_light is not None:
+                        try:
+                            lx, ly, lw, lh = map(int, matched_light.box)
+                            color = (0, 255, 255) if not used_sticky else (255, 255, 0)
+                            draw_box(overlay, lx, ly, lw, lh, color, thickness=3)
 
-                for det in all_lights:
-                    try:
-                        lx, ly, lw, lh = map(int, det.box)
-                        draw_box(overlay, lx, ly, lw, lh, (0, 140, 255), thickness=1)
-                        draw_label(overlay, f"{pick_label(labels, det.category)} ({det.conf:.2f})", lx, ly,
-                                   scale=0.5, thickness=1, text_bgr=(0, 90, 180), bg_alpha=1.0)
-                    except Exception:
-                        continue
+                            label_phase = (frame_phase_for_led
+                                           if frame_phase_for_led is not None
+                                           else (self._sticky_last_phase or "Unklar"))
+                            sticky_tag = " (sticky)" if used_sticky else ""
+                            draw_label(overlay, f"ampel{sticky_tag}: {label_phase}",
+                                       lx, max(0, ly - 20), scale=0.6, thickness=2, text_bgr=(0, 180, 180), bg_alpha=1.0)
+                        except Exception:
+                            pass
+                    else:
+                        if self._sticky_active() and self._sticky_box is not None:
+                            lx, ly, lw, lh = self._sticky_box
+                            draw_box(overlay, lx, ly, lw, lh, (255, 255, 0), thickness=2)
+                            draw_label(overlay, f"ampel (sticky only): {self._sticky_last_phase or 'Unklar'}",
+                                       lx, max(0, ly - 20), scale=0.6, thickness=2, text_bgr=(0, 180, 180), bg_alpha=1.0)
 
-                # === 7) Highlights/Badges
-                if chosen:
-                    try:
-                        det, x, y, w, h, cx, cy, lane_key, stable_ok = chosen
-                        draw_box(overlay, int(x), int(y), int(w), int(h), (0, 255, 0), thickness=3)
-                        badge = f"{pick_label(labels, det.category)} | lane:{lane_key} | conf:{det.conf:.2f}"
-                        draw_label(overlay, badge, int(x), max(0, int(y) - 20),
-                                   scale=0.6, thickness=2, text_bgr=(0, 120, 0), bg_alpha=1.0)
-                    except Exception:
-                        pass
+                    # Overlay einblenden
+                    cv2.addWeighted(overlay, 0.30, draw_surface, 0.70, 0, draw_surface)
 
-                # Gematchte Ampel (live oder sticky)
-                if matched_light is not None:
-                    try:
-                        lx, ly, lw, lh = map(int, matched_light.box)
-                        color = (0, 255, 255) if not used_sticky else (255, 255, 0)  # sticky gelblich
-                        draw_box(overlay, lx, ly, lw, lh, color, thickness=3)
-
-                        label_phase = (frame_phase_for_led
-                                       if frame_phase_for_led is not None
-                                       else (self._sticky_last_phase or "Unklar"))
-                        sticky_tag = " (sticky)" if used_sticky else ""
-                        draw_label(overlay, f"ampel{sticky_tag}: {label_phase}",
-                                   lx, max(0, ly - 20), scale=0.6, thickness=2, text_bgr=(0, 180, 180), bg_alpha=1.0)
-                    except Exception:
-                        pass
-                else:
-                    if self._sticky_active() and self._sticky_box is not None:
-                        lx, ly, lw, lh = self._sticky_box
-                        draw_box(overlay, lx, ly, lw, lh, (255, 255, 0), thickness=2)
-                        draw_label(overlay, f"ampel (sticky only): {self._sticky_last_phase or 'Unklar'}",
-                                   lx, max(0, ly - 20), scale=0.6, thickness=2, text_bgr=(0, 180, 180), bg_alpha=1.0)
-
-                # === 8) Overlay einblenden
-                cv2.addWeighted(overlay, 0.30, draw_surface, 0.70, 0, draw_surface)
-
-                # === 9) LED steuern
+                # === 7) LED steuern
                 if self._led_sink is not None:
                     if frame_phase_for_led is not None:
-                        # aktive Ampelphase anzeigen
                         try:
                             self._led_sink.apply_phase(frame_phase_for_led)
                         except Exception as e:
                             logging.warning(f"LED sink error: {e}")
                     else:
-                        # Keine aktive Phase → Ambient, wenn nicht „sticky aktiv“
                         if not self._sticky_active():
                             try:
                                 self._led_sink.set_ambient()
                             except Exception as e:
                                 logging.warning(f"LED ambient error: {e}")
 
-                # === 10) Sticky ggf. beenden
+                # === 8) Sticky ggf. beenden
                 self._sticky_end_if_due()
 
         except Exception as e:
